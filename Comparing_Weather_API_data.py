@@ -130,7 +130,7 @@ def compare_dfs(df1, df2, col1, col2, lab1, lab2):
     plt.show()
 
 
-compare_dfs(om_daily, vc_daily, "relative_humidity_2m (%)", "humidity", "om", "vc")
+compare_dfs(om_daily, vc_daily, "precipitation_sum (mm)", "precip", "om", "vc")
 
 
 
@@ -153,7 +153,7 @@ def time_series_decompose(*dfs, cols, labs, period= 365):
 
     # Loop through each dataframe and decompose
     for df, col, lab in zip(dfs, cols, labs):
-        result = seasonal_decompose(df[col], period=period)
+        result = seasonal_decompose(df[col], period=period, model="additive")
 
         # Plot the Trend component
         plt.subplot(3, 1, 1)
@@ -183,7 +183,7 @@ def time_series_decompose(*dfs, cols, labs, period= 365):
     plt.tight_layout()
     plt.show()
 
-time_series_decompose(om_daily, vc_daily, cols=["relative_humidity_2m (%)", "humidity"], labs = ["OM", "VC"], period=365)
+time_series_decompose(om_daily, vc_daily, cols=["precipitation_sum (mm)", "precip"], labs = ["OM", "VC"], period=30)
 
 
 
