@@ -81,28 +81,33 @@ for i in range(3):
     rmse_day = np.sqrt(mean_squared_error(y_test_original[:, i], predicted[:, i]))
     print(f"Day {i+1} - R²: {r2_day:.4f}, RMSE: {rmse_day:.4f} m³/m³")
 
-# for day in range(5):
-#     plt.figure(figsize=(12, 8))
-#
-#     for i in range(len(y_test_original)):
-#         true_value = y_test_original[i: day]
-#
-#         predicted_value = predicted[i: day]
-#
-#         forecast_days = test_df["time"].values[-len(y_test_original) + i: -len(y_test_original) + i + 1]
-#
-#         plt.plot(forecast_days, true_value, 'bo-', label=f'True Day {day + 1}' if i == 0 else "", alpha=0.6)
-#         plt.plot(forecast_days, predicted_value, 'rx-', label=f'Predicted Day {day + 1}' if i == 0 else "", alpha=0.6)
-#
-#     plt.title(f"True vs Predicted Soil Moisture - Day {day + 1}")
-#     plt.xlabel("Date")
-#     plt.ylabel("Soil Moisture (m³/m³)")
-#     plt.legend(loc="upper left")
-#     plt.xticks(rotation=45)
-#     plt.grid(True)
-#     plt.tight_layout()
-#     plt.show()
 
+preds_day1, preds_day2, preds_day3 = predicted[:, 0], predicted[:, 1], predicted[:, 2]
+
+true_day1, true_day2, true_day3 = y_test_original[:, 0], y_test_original[:, 1], y_test_original[:, 2]
+
+fig, axs = plt.subplots(3, 1, figsize=(14, 10), sharex="all")
+
+# print(true_day1[:5])
+# print(true_day2[:5])
+
+days = [1, 2, 3]
+
+true_vals = [true_day1, true_day2, true_day3]
+pred_vals = [preds_day1, preds_day2, preds_day3]
+
+for i in range(3):
+    axs[i].plot(true_vals[i], label='Actual', color='black')
+    axs[i].plot(pred_vals[i], label='Predicted', color='green')
+    axs[i].set_title(f'Soil Moisture Prediction - Day {days[i]}')
+    axs[i].set_ylabel('Soil Moisture (m³/m³)')
+    axs[i].legend()
+    axs[i].grid(True)
+
+axs[-1].set_xlabel('Time')
+
+plt.tight_layout()
+plt.show()
 
 # y_pred = model.predict(x_test)
 #
