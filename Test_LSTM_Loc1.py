@@ -6,6 +6,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import r2_score, mean_squared_error
 import tensorflow as tf
 import matplotlib.pyplot as plt
+import statsmodels
 
 np.random.seed(123)
 random.seed(123)
@@ -36,22 +37,24 @@ def create_seq(x, y, time_steps=30, forecasts=3):
     return np.array(xs), np.array(ys)
 
 
-x, y = create_seq(features_scaled, target_scaled, time_steps=30, forecasts=3)
+x, y = create_seq(features_scaled, target_scaled, time_steps=20, forecasts=7)
 
 # x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.2, shuffle=False, random_state=123)
 
 model = tf.keras.Sequential()
-model.add(tf.keras.layers.LSTM(128, return_sequences=True, input_shape=(x.shape[1], x.shape[2])))
+
+model.add(tf.keras.layers.Conv1D(filters=64, kernel_size=7, activation='relu', padding='same', input_shape=(x.shape[1], x.shape[2])))
+model.add(tf.keras.layers.LSTM(128, return_sequences=True))
 model.add(tf.keras.layers.LSTM(64, return_sequences=True))
 model.add(tf.keras.layers.LSTM(32))
-model.add(tf.keras.layers.Dense(3))
+model.add(tf.keras.layers.Dense(7))
 model.compile(optimizer='adam', loss='mse')
 model.summary()
 
-model.fit(x, y, epochs=20, batch_size=32, validation_split=0.2)
+model.fit(x, y, epochs=20, batch_size=32, validation_split=0.3)
 
-last_30_days = features_scaled[-30:]
-last_30_days = last_30_days.reshape((1, 30, features_scaled.shape[1]))
+last_30_days = features_scaled[-20:]
+last_30_days = last_30_days.reshape((1, 20, features_scaled.shape[1]))
 
 predicted_sm = model.predict(last_30_days)
 predicted_sm = target_scaler.inverse_transform(predicted_sm)
@@ -68,7 +71,7 @@ test_target = test_df["soil_moisture_7_to_28cm_mean (m³/m³)"]
 test_features_scaled = features_scaler.fit_transform(test_features)
 test_target_scaled = target_scaler.fit_transform(test_target.values.reshape(-1, 1))
 
-x_test, y_test = create_seq(test_features_scaled, test_target_scaled, time_steps=30, forecasts=3)
+x_test, y_test = create_seq(test_features_scaled, test_target_scaled, time_steps=20, forecasts=7)
 
 predicted_scaled = model.predict(x_test)
 
@@ -76,7 +79,7 @@ predicted = target_scaler.inverse_transform(predicted_scaled)
 
 y_test_original = target_scaler.inverse_transform(y_test)
 
-for i in range(3):
+for i in range(7):
     r2_day = r2_score(y_test_original[:, i], predicted[:, i])
     rmse_day = np.sqrt(mean_squared_error(y_test_original[:, i], predicted[:, i]))
     print(f"Day {i+1} - R²: {r2_day:.4f}, RMSE: {rmse_day:.4f} m³/m³")
