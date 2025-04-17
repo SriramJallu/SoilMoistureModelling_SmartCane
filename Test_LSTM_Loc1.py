@@ -45,7 +45,7 @@ model = tf.keras.Sequential()
 
 model.add(tf.keras.layers.Conv1D(filters=64, kernel_size=7, activation='relu', padding='same', input_shape=(x.shape[1], x.shape[2])))
 model.add(tf.keras.layers.LSTM(128, return_sequences=True))
-model.add(tf.keras.layers.LSTM(64, return_sequences=True))
+model.add(tf.keras.layers.LSTM(128, return_sequences=True))
 model.add(tf.keras.layers.LSTM(32))
 model.add(tf.keras.layers.Dense(7))
 model.compile(optimizer='adam', loss='mse')
@@ -64,6 +64,7 @@ print("Next 3 days SM", predicted_sm)
 test_df = pd.read_csv("../../Data/Chemba_loc1_OpenMeteo_API_01012017_30122018_Daily.csv", skiprows=3)
 test_df["time"] = pd.to_datetime(test_df["time"])
 
+# test_df = test_df[test_df["time"].dt.year == 2017]
 
 test_features = test_df.drop(columns=["soil_moisture_7_to_28cm_mean (m³/m³)", "time", "rain_sum (mm)"])
 test_target = test_df["soil_moisture_7_to_28cm_mean (m³/m³)"]
