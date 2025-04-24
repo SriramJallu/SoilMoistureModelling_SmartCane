@@ -17,10 +17,8 @@ gsmap = "../../Data/GSMaP/GSMaP_2024_Daily.tif"
 
 def read_tif(filename):
     with rasterio.open(filename) as f:
-        # Read all bands
         data = f.read()
-        # Extract dates from band names or metadata
-        dates = [str(band) for band in f.descriptions]  # Assuming descriptions are dates
+        dates = [str(band) for band in f.descriptions]
         return data, dates, f.transform, f.crs, f.bounds
 
 
