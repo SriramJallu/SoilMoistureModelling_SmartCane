@@ -16,7 +16,7 @@ print("Coolio!!")
 
 df = pd.read_csv("../../Data/Chemba_loc1_OpenMeteo_API_01012019_30122024_Daily.csv", skiprows=3)
 df["time"] = pd.to_datetime(df["time"])
-# print(df.columns)
+# print(df.head())
 
 features = df.drop(columns=["soil_moisture_7_to_28cm_mean (m³/m³)", "time", "rain_sum (mm)"])
 target = df["soil_moisture_7_to_28cm_mean (m³/m³)"]
