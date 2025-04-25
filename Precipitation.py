@@ -4,11 +4,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.metrics import mean_squared_error, mean_absolute_error
 import seaborn as sns
+import itertools
 
-era5 = "../../Data/ERA5/ERA5_2024_Daily.tif"
-imerg = "../../Data/IMERG/IMERG_2024_Daily.tif"
-chirps = "../../Data/CHIRPS/CHIRPS_2024_Daily.tif"
-gsmap = "../../Data/GSMaP/GSMaP_2024_Daily.tif"
+era5 = "../../Data/ERA5/ERA5_2021_2022_Precip_Daily.tif"
+imerg = "../../Data/IMERG/IMERG_2021_2022_Precip_Daily.tif"
+chirps = "../../Data/CHIRPS/CHIRPS_2021_2022_Precip_Daily.tif"
+gsmap = "../../Data/GSMaP/GSMaP_2021_2022_Precip_Daily.tif"
 
 #
 # def read_tif(filename):
@@ -57,7 +58,7 @@ gsmap_row, gsmap_col = get_pixels_values(pt_lat, pt_lon, gsmap_transform)
 gsmap_precip = gsmap_data[:, gsmap_row, gsmap_col]
 
 
-dates = pd.date_range(start="2024-01-01", end="2024-12-31", freq="D")
+dates = pd.date_range(start="2021-01-01", end="2022-12-31", freq="D")
 
 precip_df = pd.DataFrame({
     "Date" : dates,
@@ -71,11 +72,11 @@ precip_df = pd.DataFrame({
 df = pd.read_csv("../../Data/Chemba_loc1_OpenMeteo_API_01012019_30122024_Daily.csv", skiprows=3)
 df["time"] = pd.to_datetime(df["time"])
 
-openmeteo = df[df["time"].dt.year == 2024].copy()
+openmeteo = df[df["time"].dt.year.isin([2021, 2022])].copy()
 
 openmeteo.rename(columns={"precipitation_sum (mm)": "OpenMeteo"}, inplace=True)
 
-precip_df = precip_df[precip_df["Date"] < "2024-12-31"]
+# precip_df = precip_df[precip_df["Date"] < "2024-12-31"]
 
 precip_df["OpenMeteo"] = openmeteo["OpenMeteo"].values
 
@@ -90,7 +91,28 @@ corr_mat = precip_df.drop(columns=["Date"]).corr()
 
 r2_mat = corr_mat**2
 
-print(r2_mat)
+print("#######################")
+print("R2 Daily\n", r2_mat)
+print("#######################")
+
+products = ['ERA5', 'IMERG', 'CHIRPS', 'GSMaP', 'OpenMeteo']
+rmse_df = pd.DataFrame(index=products, columns=products)
+mae_df = pd.DataFrame(index=products, columns=products)
+
+for p1, p2 in itertools.combinations(products, 2):
+    rmse = np.sqrt(mean_squared_error(precip_df[p1], precip_df[p2]))
+    mae = mean_absolute_error(precip_df[p1], precip_df[p2])
+    rmse_df.loc[p1, p2] = rmse
+    rmse_df.loc[p2, p1] = rmse
+    mae_df.loc[p1, p2] = mae
+    mae_df.loc[p2, p1] = mae
+
+
+print("RSME Daily\n", rmse_df)
+print("#######################")
+print("MAE Daily\n", mae_df)
+print("#######################")
+
 
 plt.figure(figsize=(14, 8))
 plt.plot(precip_df["Date"], precip_df["ERA5"], label="ERA5", linewidth=1.5)
@@ -99,7 +121,56 @@ plt.plot(precip_df["Date"], precip_df["CHIRPS"], label="CHIRPS", linewidth=1.5)
 plt.plot(precip_df["Date"], precip_df["GSMaP"], label="GSMaP", linewidth=1.5)
 plt.plot(precip_df["Date"], precip_df["OpenMeteo"], label="OpenMeteo", linewidth=1.5)
 
-plt.title("Comparision")
+plt.title("Daily Comparision - Precipitation")
+plt.xlabel("Date")
+plt.ylabel("Precipitation (mm)")
+plt.legend()
+plt.tight_layout()
+plt.show()
+
+# sns.scatterplot(x=precip_df["IMERG"], y=precip_df["GSMaP"])
+# plt.xlabel("IMERG")
+# plt.ylabel("GSMaP")
+# plt.show()
+
+
+precip_df = precip_df.set_index("Date")
+precip_df_7d = precip_df.resample("7D").sum().reset_index()
+# print(precip_df_7d.head())
+
+corr_mat_7d = precip_df_7d.drop(columns=["Date"]).corr()
+# print(corr_mat_7d)
+
+r2_mat_7d = corr_mat_7d**2
+
+print("R2 7-Day\n", r2_mat_7d)
+print("#######################")
+
+rmse_df_7d = pd.DataFrame(index=products, columns=products)
+mae_df_7d = pd.DataFrame(index=products, columns=products)
+
+for p1, p2 in itertools.combinations(products, 2):
+    rmse_7d = np.sqrt(mean_squared_error(precip_df_7d[p1], precip_df_7d[p2]))
+    mae_7d = mean_absolute_error(precip_df_7d[p1], precip_df_7d[p2])
+    rmse_df_7d.loc[p1, p2] = rmse_7d/7
+    rmse_df_7d.loc[p2, p1] = rmse_7d/7
+    mae_df_7d.loc[p1, p2] = mae_7d/7
+    mae_df_7d.loc[p2, p1] = mae_7d/7
+
+print("RSME 7-Day\n", rmse_df_7d)
+print("#######################")
+print("MAE 7-Day\n", mae_df_7d)
+print("#######################")
+
+
+plt.figure(figsize=(14, 8))
+plt.plot(precip_df_7d["Date"], precip_df_7d["ERA5"], label="ERA5", linewidth=1.5)
+plt.plot(precip_df_7d["Date"], precip_df_7d["IMERG"], label="IMERG", linewidth=1.5)
+plt.plot(precip_df_7d["Date"], precip_df_7d["CHIRPS"], label="CHIRPS", linewidth=1.5)
+plt.plot(precip_df_7d["Date"], precip_df_7d["GSMaP"], label="GSMaP", linewidth=1.5)
+plt.plot(precip_df_7d["Date"], precip_df_7d["OpenMeteo"], label="OpenMeteo", linewidth=1.5)
+
+plt.title("Comparision 7-Day aggregates - Precipitation")
 plt.xlabel("Date")
 plt.ylabel("Precipitation (mm)")
 plt.legend()
@@ -107,13 +178,43 @@ plt.tight_layout()
 plt.show()
 
 
-rmse_imerg = np.sqrt(mean_squared_error(precip_df["OpenMeteo"], precip_df["ERA5"]))
-mae_imerg = mean_absolute_error(precip_df["OpenMeteo"], precip_df["ERA5"])
+precip_df_14d = precip_df.resample("14D").sum().reset_index()
+# print(precip_df_14d.head())
 
-print(rmse_imerg, mae_imerg)
+corr_mat_14d = precip_df_14d.drop(columns=["Date"]).corr()
+# print(corr_mat_14d)
 
-# sns.scatterplot(x=precip_df["IMERG"], y=precip_df["GSMaP"])
-# plt.xlabel("IMERG")
-# plt.ylabel("GSMaP")
-# plt.show()
+r2_mat_14d = corr_mat_14d**2
+print("R2 14-Day\n", r2_mat_14d)
+print("#######################")
+
+rmse_df_14d = pd.DataFrame(index=products, columns=products)
+mae_df_14d = pd.DataFrame(index=products, columns=products)
+
+for p1, p2 in itertools.combinations(products, 2):
+    rmse_14d = np.sqrt(mean_squared_error(precip_df_14d[p1], precip_df_14d[p2]))
+    mae_14d = mean_absolute_error(precip_df_14d[p1], precip_df_14d[p2])
+    rmse_df_14d.loc[p1, p2] = rmse_14d/14
+    rmse_df_14d.loc[p2, p1] = rmse_14d/14
+    mae_df_14d.loc[p1, p2] = mae_14d/14
+    mae_df_14d.loc[p2, p1] = mae_14d/14
+
+print("RSME 14-Day\n", rmse_df_14d)
+print("#######################")
+print("MAE 14-Day\n", mae_df_14d)
+print("#######################")
+
+plt.figure(figsize=(14, 8))
+plt.plot(precip_df_14d["Date"], precip_df_14d["ERA5"], label="ERA5", linewidth=1.5)
+plt.plot(precip_df_14d["Date"], precip_df_14d["IMERG"], label="IMERG", linewidth=1.5)
+plt.plot(precip_df_14d["Date"], precip_df_14d["CHIRPS"], label="CHIRPS", linewidth=1.5)
+plt.plot(precip_df_14d["Date"], precip_df_14d["GSMaP"], label="GSMaP", linewidth=1.5)
+plt.plot(precip_df_14d["Date"], precip_df_14d["OpenMeteo"], label="OpenMeteo", linewidth=1.5)
+
+plt.title("Comparision 14-Day aggregates - Precipitation")
+plt.xlabel("Date")
+plt.ylabel("Precipitation (mm)")
+plt.legend()
+plt.tight_layout()
+plt.show()
 
