@@ -39,8 +39,11 @@ def get_pixels_values(lat, lon, transform):
     row, col = ~transform*(lon, lat)
     return int(row), int(col)
 
-
+# Chemba
 pt_lat, pt_lon = -17.331524, 34.954147
+
+# Transmara, Kenya
+# pt_lat, pt_lon = -1.023509, 34.740671
 
 era5_row, era5_col = get_pixels_values(pt_lat, pt_lon, era5_transform)
 era5_precip = era5_data[:, era5_row, era5_col]
@@ -84,6 +87,13 @@ print(precip_df.head())
 
 print(precip_df.shape)
 
+vc_daily = pd.read_csv("../../Data/Chemba_loc1_VisualCrossing_01012021_31122022_Daily.csv")
+vc_daily = vc_daily.drop(columns="name")
+vc_daily["datetime"] = pd.to_datetime(vc_daily["datetime"])
+
+vc_daily.rename(columns={"precip": "VisualCrossing"}, inplace=True)
+
+precip_df["VisualCrossing"] = vc_daily["VisualCrossing"].values
 
 precip_df["Date"] = pd.to_datetime(precip_df["Date"])
 
@@ -91,11 +101,14 @@ corr_mat = precip_df.drop(columns=["Date"]).corr()
 
 r2_mat = corr_mat**2
 
+pd.set_option('display.max_columns', None)
+pd.set_option('display.width', None)
+
 print("#######################")
 print("R2 Daily\n", r2_mat)
 print("#######################")
 
-products = ['ERA5', 'IMERG', 'CHIRPS', 'GSMaP', 'OpenMeteo']
+products = ['ERA5', 'IMERG', 'CHIRPS', 'GSMaP', 'OpenMeteo', 'VisualCrossing']
 rmse_df = pd.DataFrame(index=products, columns=products)
 mae_df = pd.DataFrame(index=products, columns=products)
 
@@ -120,6 +133,7 @@ plt.plot(precip_df["Date"], precip_df["IMERG"], label="IMERG", linewidth=1.5)
 plt.plot(precip_df["Date"], precip_df["CHIRPS"], label="CHIRPS", linewidth=1.5)
 plt.plot(precip_df["Date"], precip_df["GSMaP"], label="GSMaP", linewidth=1.5)
 plt.plot(precip_df["Date"], precip_df["OpenMeteo"], label="OpenMeteo", linewidth=1.5)
+plt.plot(precip_df["Date"], precip_df["VisualCrossing"], label="VisualCrossing", linewidth=1.5)
 
 plt.title("Daily Comparision - Precipitation")
 plt.xlabel("Date")
@@ -169,6 +183,7 @@ plt.plot(precip_df_7d["Date"], precip_df_7d["IMERG"], label="IMERG", linewidth=1
 plt.plot(precip_df_7d["Date"], precip_df_7d["CHIRPS"], label="CHIRPS", linewidth=1.5)
 plt.plot(precip_df_7d["Date"], precip_df_7d["GSMaP"], label="GSMaP", linewidth=1.5)
 plt.plot(precip_df_7d["Date"], precip_df_7d["OpenMeteo"], label="OpenMeteo", linewidth=1.5)
+plt.plot(precip_df_7d["Date"], precip_df_7d["VisualCrossing"], label="VisualCrossing", linewidth=1.5)
 
 plt.title("Comparision 7-Day aggregates - Precipitation")
 plt.xlabel("Date")
@@ -210,6 +225,7 @@ plt.plot(precip_df_14d["Date"], precip_df_14d["IMERG"], label="IMERG", linewidth
 plt.plot(precip_df_14d["Date"], precip_df_14d["CHIRPS"], label="CHIRPS", linewidth=1.5)
 plt.plot(precip_df_14d["Date"], precip_df_14d["GSMaP"], label="GSMaP", linewidth=1.5)
 plt.plot(precip_df_14d["Date"], precip_df_14d["OpenMeteo"], label="OpenMeteo", linewidth=1.5)
+plt.plot(precip_df_14d["Date"], precip_df_14d["VisualCrossing"], label="VisualCrossing", linewidth=1.5)
 
 plt.title("Comparision 14-Day aggregates - Precipitation")
 plt.xlabel("Date")
