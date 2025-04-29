@@ -5,6 +5,9 @@ import matplotlib.pyplot as plt
 from sklearn.metrics import mean_squared_error, mean_absolute_error
 import seaborn as sns
 import itertools
+from statsmodels.tsa.arima.model import ARIMA
+from sklearn.linear_model import Ridge
+from sklearn.utils import resample
 
 era5 = "../../Data/ERA5/ERA5_2021_2022_Precip_Daily.tif"
 imerg = "../../Data/IMERG/IMERG_2021_2022_Precip_Daily.tif"
@@ -233,4 +236,19 @@ plt.ylabel("Precipitation (mm)")
 plt.legend()
 plt.tight_layout()
 plt.show()
+
+print(precip_df.head())
+
+# smoothed = precip_df.rolling(7).mean().reset_index()
+#
+# plt.figure(figsize=(14, 8))
+# for col in ["ERA5", "IMERG", "CHIRPS", "GSMaP", "OpenMeteo", "VisualCrossing"]:
+#     plt.plot(smoothed["Date"], smoothed[col], label=col, linewidth=2)
+#
+# plt.title("7-Day Smoothed Precip Comparison")
+# plt.xlabel("Date")
+# plt.ylabel("Precipitation (mm)")
+# plt.legend()
+# plt.tight_layout()
+# plt.show()
 
