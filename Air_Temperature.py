@@ -39,24 +39,24 @@ pt_lat, pt_lon = -17.331524, 34.954147
 # pt_lat, pt_lon = -1.023509, 34.740671
 
 era5_row, era5_col = get_pixels_values(pt_lat, pt_lon, era5_transform)
-era5_precip = era5_data[:, era5_row, era5_col]
+era5_temp = era5_data[:, era5_row, era5_col]
 
 
 gldas_row, gldas_col = get_pixels_values(pt_lat, pt_lon, gldas_transform)
-gldas_precip = gldas_data[:, gldas_row, gldas_col]
+gldas_temp = gldas_data[:, gldas_row, gldas_col]
 
 
 cfs_row, cfs_col = get_pixels_values(pt_lat, pt_lon, cfs_transform)
-cfs_precip = cfs_data[:, cfs_row, cfs_col]
+cfs_temp = cfs_data[:, cfs_row, cfs_col]
 
 
 dates = pd.date_range(start="2021-01-01", end="2022-12-31", freq="D")
 
 temp_df = pd.DataFrame({
     "Date" : dates,
-    "ERA5" : era5_precip,
-    "GLDAS" : gldas_precip,
-    "CFS" : cfs_precip
+    "ERA5" : era5_temp,
+    "GLDAS" : gldas_temp,
+    "CFS" : cfs_temp
 })
 
 
