@@ -5,22 +5,22 @@ import matplotlib.pyplot as plt
 from sklearn.metrics import mean_squared_error, mean_absolute_error
 import seaborn as sns
 import itertools
-from statsmodels.tsa.arima.model import ARIMA
+from statsmodels.tsa.statespace.sarimax import SARIMAX
+from pmdarima.arima import auto_arima
+from statsmodels.tsa.stattools import adfuller
 from sklearn.linear_model import Ridge
 from sklearn.utils import resample
 from statsmodels.tsa.seasonal import seasonal_decompose
 import tensorflow as tf
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import mean_squared_error, r2_score
+import random
 
 
 era5 = "../../Data/ERA5/ERA5_2021_2022_Precip_Daily.tif"
 imerg = "../../Data/IMERG/IMERG_2021_2022_Precip_Daily.tif"
 chirps = "../../Data/CHIRPS/CHIRPS_2021_2022_Precip_Daily.tif"
 gsmap = "../../Data/GSMaP/GSMaP_2021_2022_Precip_Daily.tif"
-
-era5_train = "../../Data/ERA5/ERA5_2019_2024_Precip_Daily.tif"
-era5_test = "../../Data/ERA5/ERA5_2017_2018_Precip_Daily.tif"
 
 
 def read_tif(filename):
@@ -34,9 +34,6 @@ era5_data, era5_dates, era5_transform, era5_crs, era5_bounds = read_tif(era5)
 imerg_data, imerg_dates, imerg_transform, imerg_crs, imerg_bounds = read_tif(imerg)
 chirps_data, chirps_dates, chirps_transform, chirps_crs, chirps_bounds = read_tif(chirps)
 gsmap_data, gsmap_dates, gsmap_transform, gsmap_crs, gsmap_bounds = read_tif(gsmap)
-
-era5_train_data, era5_train_dates, era5_train_transform, era5_train_crs, era5_train_bounds = read_tif(era5_train)
-era5_test_data, era5_test_dates, era5_test_transform, era5_test_crs, era5_test_bounds = read_tif(era5_test)
 
 
 def get_pixels_values(lat, lon, transform):
@@ -228,14 +225,24 @@ print("#######################")
 
 ## Precipitation forecasting
 
+np.random.seed(123)
+random.seed(123)
+tf.random.set_seed(123)
+
+era5_train = "../../Data/ERA5/ERA5_2015_2022_Precip_Daily.tif"
+era5_test = "../../Data/ERA5/ERA5_2023_2024_Precip_Daily.tif"
+
+era5_train_data, era5_train_dates, era5_train_transform, era5_train_crs, era5_train_bounds = read_tif(era5_train)
+era5_test_data, era5_test_dates, era5_test_transform, era5_test_crs, era5_test_bounds = read_tif(era5_test)
+
 era5_train_row, era5_train_col = get_pixels_values(pt_lat, pt_lon, era5_train_transform)
 era5_train_precip = era5_train_data[:, era5_train_row, era5_train_col]
 
 era5_test_row, era5_test_col = get_pixels_values(pt_lat, pt_lon, era5_test_transform)
 era5_test_precip = era5_test_data[:, era5_test_row, era5_test_col]
 
-train_dates = pd.date_range(start="2019-01-01", end="2024-12-31", freq="D")
-test_dates = pd.date_range(start="2017-01-01", end="2018-12-31", freq="D")
+train_dates = pd.date_range(start="2015-01-01", end="2022-12-31", freq="D")
+test_dates = pd.date_range(start="2023-01-01", end="2024-12-31", freq="D")
 
 precip_train_df = pd.DataFrame({
     "Date" : train_dates,
@@ -247,67 +254,139 @@ precip_test_df = pd.DataFrame({
     "ERA5" : era5_test_precip
 })
 
-precip_train_df = precip_train_df.copy()
-precip_train_df = precip_train_df.dropna(subset=["ERA5"])
-data = precip_train_df["ERA5"].values.reshape(-1, 1)
+precip_train_df = precip_train_df.set_index("Date")
+precip_test_df = precip_test_df.set_index("Date")
 
-scaler = MinMaxScaler()
-scaled_data = scaler.fit_transform(data)
+train_weekly = precip_train_df.resample("7D").sum()
+test_weekly = precip_test_df.resample("7D").sum()
 
+plot_acf(train_weekly["ERA5"].dropna(), lags=100)
+plot_pacf(train_weekly["ERA5"].dropna(), lags=100)
 
-def create_sequences(data, input_len=30, output_len=7):
-    X, y = [], []
-    for i in range(len(data) - input_len - output_len + 1):
-        X.append(data[i:i+input_len])
-        y.append(data[i+input_len:i+input_len+output_len].flatten())
-    return np.array(X), np.array(y)
+model = SARIMAX(train_weekly, order=(1,0,1), seasonal_order=(1,1,1,52),
+                enforce_stationarity=False, enforce_invertibility=False)
+results = model.fit(disp=False)
 
+n_test = len(test_weekly)
+forecast = results.forecast(steps=n_test)
+forecast.index = test_weekly.index
 
-X, y = create_sequences(scaled_data, input_len=30, output_len=7)
+r2 = r2_score(test_weekly, forecast)
+rmse = np.sqrt(mean_squared_error(test_weekly, forecast))
 
-model = tf.keras.Sequential([
-    tf.keras.layers.LSTM(128, return_sequences=True, input_shape=(30, 1)),
-    tf.keras.layers.LSTM(64, return_sequences=True),
-    tf.keras.layers.LSTM(32),
-    tf.keras.layers.Dense(7)
-])
+print(f"Weekly forecast for {n_test} weeks")
+print(f"R²: {r2:.4f}")
+print(f"RMSE: {rmse:.2f} mm")
 
-model.compile(optimizer='adam', loss='mse')
-model.fit(X, y, epochs=50, batch_size=32, validation_split=0.2)
-
-
-last_30 = scaled_data[-30:].reshape(1, 30, 1)
-forecast_scaled = model.predict(last_30)
-forecast = scaler.inverse_transform(forecast_scaled)[0]
-
-print(forecast)
-
-precip_test_df["Date"] = pd.to_datetime(precip_test_df["Date"])
-precip_test_df = precip_test_df.dropna(subset=["ERA5"])
-test_series = precip_test_df["ERA5"].values.reshape(-1, 1)
-test_scaled = scaler.transform(test_series)
-
-X_test, y_test = create_sequences(test_scaled, input_len=30, output_len=7)
-
-y_pred_scaled = model.predict(X_test)
-y_pred = scaler.inverse_transform(y_pred_scaled)
-y_true = scaler.inverse_transform(y_test)
-
-for i in range(7):
-    r2 = r2_score(y_true[:, i], y_pred[:, i])
-    rmse = np.sqrt(mean_squared_error(y_true[:, i], y_pred[:, i]))
-    print(f"Day {i+1} - R²: {r2:.4f}, RMSE: {rmse:.4f}")
-
-fig, axs = plt.subplots(3, 1, figsize=(14, 10), sharex="all")
-
-for i in range(3):
-    axs[i].plot(y_true[:, i], label="Actual", color="black")
-    axs[i].plot(y_pred[:, i], label="Predicted", color="green")
-    axs[i].set_title(f"ERA5 Precipitation Prediction - Day {i+1}")
-    axs[i].set_ylabel("Precipitation (mm)")
-    axs[i].legend()
-    axs[i].grid(True)
-
-axs[-1].set_xlabel("Time step")
+plt.figure(figsize=(14,5))
+plt.plot(test_weekly, label="Actual (7-day total)", color='black')
+plt.plot(forecast, label="Forecast", color='blue', alpha=0.7)
+plt.title("Weekly Precipitation Forecast (7-Day Totals, SARIMAX)")
+plt.ylabel("Precipitation (mm/week)")
+plt.legend()
+plt.grid(True)
 plt.tight_layout()
 plt.show()
+
+# precip_train_df = precip_train_df.dropna(subset=["ERA5"])
+# data = precip_train_df["ERA5"].values.reshape(-1, 1)
+#
+# scaler = MinMaxScaler()
+# scaled_data = scaler.fit_transform(data)
+#
+#
+# def create_sequences(data, input_len=30, output_len=7):
+#     X, y = [], []
+#     for i in range(len(data) - input_len - output_len + 1):
+#         X.append(data[i:i+input_len])
+#         y.append(data[i+input_len:i+input_len+output_len].flatten())
+#     return np.array(X), np.array(y)
+#
+#
+# X, y = create_sequences(scaled_data, input_len=30, output_len=7)
+#
+# model = tf.keras.Sequential([
+#     tf.keras.layers.LSTM(64, return_sequences=True, input_shape=(30, 1)),
+#     tf.keras.layers.Dropout(0.2),
+#     tf.keras.layers.LSTM(32),
+#     tf.keras.layers.Dropout(0.2),
+#     tf.keras.layers.Dense(7, activation='relu')
+# ])
+#
+# model.compile(optimizer='adam', loss='mse')
+# model.fit(X, y, epochs=50, batch_size=32, validation_split=0.2)
+#
+#
+# def monte_carlo_predict(model, X, num_samples=100):
+#     predictions = np.zeros((num_samples, X.shape[0], 7))
+#     for i in range(num_samples):
+#         predictions[i] = model(X, training=True)
+#     return predictions
+#
+#
+# last_30 = scaled_data[-30:].reshape(1, 30, 1)
+# predictions_mc = monte_carlo_predict(model, last_30, num_samples=100)
+# #
+# # last_30 = scaled_data[-30:].reshape(1, 30, 1)
+# # forecast_scaled = model.predict(last_30)
+# # forecast = scaler.inverse_transform(forecast_scaled)[0]
+#
+# mean_preds = np.mean(predictions_mc, axis=0)
+# lower_bound = np.percentile(predictions_mc, 2.5, axis=0)
+# upper_bound = np.percentile(predictions_mc, 97.5, axis=0)
+#
+# mean_preds = scaler.inverse_transform(mean_preds)[0]
+# lower_bound = scaler.inverse_transform(lower_bound)[0]
+# upper_bound = scaler.inverse_transform(upper_bound)[0]
+#
+# print(f"Predicted Precipitation (Mean): {mean_preds}")
+# print(f"Lower Bound (2.5%): {lower_bound}")
+# print(f"Upper Bound (97.5%): {upper_bound}")
+#
+#
+# precip_test_df["Date"] = pd.to_datetime(precip_test_df["Date"])
+# precip_test_df = precip_test_df.dropna(subset=["ERA5"])
+# test_series = precip_test_df["ERA5"].values.reshape(-1, 1)
+# test_scaled = scaler.transform(test_series)
+#
+# X_test, y_test = create_sequences(test_scaled, input_len=30, output_len=7)
+#
+# predictions_mc_test = monte_carlo_predict(model, X_test, num_samples=100)
+#
+# mean_preds_test = np.mean(predictions_mc_test, axis=0)
+# lower_bound_test = np.percentile(predictions_mc_test, 2.5, axis=0)
+# upper_bound_test = np.percentile(predictions_mc_test, 97.5, axis=0)
+#
+# mean_preds_test = scaler.inverse_transform(mean_preds_test)
+# lower_bound_test = scaler.inverse_transform(lower_bound_test)
+# upper_bound_test = scaler.inverse_transform(upper_bound_test)
+# # y_pred_scaled = model.predict(X_test)
+# # y_pred = scaler.inverse_transform(y_pred_scaled)
+# y_true = scaler.inverse_transform(y_test)
+#
+# for i in range(7):
+#     r2 = r2_score(y_true[:, i], mean_preds_test[:, i])
+#     rmse = np.sqrt(mean_squared_error(y_true[:, i], mean_preds_test[:, i]))
+#     print(f"Day {i+1} - R²: {r2:.4f}, RMSE: {rmse:.4f}")
+#
+# fig, axs = plt.subplots(3, 1, figsize=(14, 10), sharex="all")
+#
+# for i in range(3):
+#     axs[i].plot(y_true[:, i+1], label="Actual", color="black")
+#     axs[i].plot(mean_preds_test[:, i+1], label="Predicted (Mean)", color="green")
+#     axs[i].fill_between(
+#         np.arange(len(mean_preds_test)),
+#         lower_bound_test[:, i+1],
+#         upper_bound_test[:, i+1],
+#         color="gray",
+#         alpha=0.5,
+#         label="97.5% CI"
+#     )
+#     axs[i].set_title(f"ERA5 Precipitation Prediction - Day {i+1}")
+#     axs[i].set_ylabel("Precipitation (mm)")
+#     axs[i].legend()
+#     axs[i].grid(True)
+#
+# axs[-1].set_xlabel("Time step")
+# plt.tight_layout()
+# plt.show()
