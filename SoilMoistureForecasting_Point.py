@@ -25,6 +25,10 @@ era5_windspeed_train = "../../Data/ERA5/ERA5_2015_2022_WindSpeed_Daily.tif"
 era5_windspeed_test = "../../Data/ERA5/ERA5_2023_2024_WindSpeed_Daily.tif"
 era5_radiation_train = "../../Data/ERA5/ERA5_2015_2022_Radiation_Daily.tif"
 era5_radiation_test = "../../Data/ERA5/ERA5_2023_2024_Radiation_Daily.tif"
+era5_et_train = "../../Data/ERA5/ERA5_2015_2022_ET_Daily.tif"
+era5_et_test = "../../Data/ERA5/ERA5_2023_2024_ET_Daily.tif"
+era5_soiltemp_train = "../../Data/ERA5/ERA5_2015_2022_SoilTemp_Daily.tif"
+era5_soiltemp_test = "../../Data/ERA5/ERA5_2023_2024_SoilTemp_Daily.tif"
 
 smap_sm_train = "../../Data/SMAP/SMAP_2016_2022_SM_Daily.tif"
 smap_sm_test = "../../Data/SMAP/SMAP_2023_2024_SM_Daily.tif"
@@ -62,6 +66,12 @@ era5_windspeed_test_data, era5_windspeed_test_transform = read_tif(era5_windspee
 era5_radiation_train_data, era5_radiation_train_transform = read_tif(era5_radiation_train)
 era5_radiation_test_data, era5_radiation_test_transform = read_tif(era5_radiation_test)
 
+era5_et_train_data, era5_et_train_transform = read_tif(era5_et_train)
+era5_et_test_data, era5_et_test_transform = read_tif(era5_et_test)
+
+era5_soiltemp_train_data, era5_soiltemp_train_transform = read_tif(era5_soiltemp_train)
+era5_soiltemp_test_data, era5_soiltemp_test_transform = read_tif(era5_soiltemp_test)
+
 smap_sm_train_data, smap_sm_train_transform = read_tif(smap_sm_train)
 smap_sm_test_data, smap_sm_test_transform = read_tif(smap_sm_test)
 
@@ -77,6 +87,8 @@ era5_train_temp = era5_temp_train_data[:, era5_row, era5_col]
 era5_train_rh = era5_rh_train_data[:, era5_row, era5_col]
 era5_train_windspeed = era5_windspeed_train_data[:, era5_row, era5_col]
 era5_train_radiation = era5_radiation_train_data[:, era5_row, era5_col]
+era5_train_et = era5_et_train_data[:, era5_row, era5_col]
+era5_train_soiltemp = era5_soiltemp_train_data[:, era5_row, era5_col]
 smap_train_sm = smap_sm_train_data[:, era5_row, era5_col]
 # smap_train_soiltemp = smap_soiltemp_train_data[:, era5_row, era5_col]
 
@@ -87,6 +99,8 @@ era5_test_temp = era5_temp_test_data[:, era5_row, era5_col]
 era5_test_rh = era5_rh_test_data[:, era5_row, era5_col]
 era5_test_windspeed = era5_windspeed_test_data[:, era5_row, era5_col]
 era5_test_radiation = era5_radiation_test_data[:, era5_row, era5_col]
+era5_test_et = era5_et_test_data[:, era5_row, era5_col]
+era5_test_soiltemp = era5_soiltemp_test_data[:, era5_row, era5_col]
 smap_test_sm = smap_sm_test_data[:, era5_row, era5_col]
 # smap_test_soiltemp = smap_soiltemp_test_data[:, era5_row, era5_col]
 
@@ -99,7 +113,9 @@ temp_train_df = pd.DataFrame({
     "Temp" : era5_train_temp,
     "RH" : era5_train_rh,
     "WindSpeed" : era5_train_windspeed,
-    "Radiation" : era5_train_radiation
+    "Radiation" : era5_train_radiation,
+    "ET" : era5_train_et,
+    "SoilTemp" : era5_train_soiltemp
 })
 
 temp_test_df = pd.DataFrame({
@@ -109,7 +125,9 @@ temp_test_df = pd.DataFrame({
     "RH" : era5_test_rh,
     "WindSpeed" : era5_test_windspeed,
     "Radiation" : era5_test_radiation,
-    "SM" : smap_test_sm
+    "SM" : smap_test_sm,
+    "ET" : era5_test_et,
+    "SoilTemp" : era5_test_soiltemp
 })
 
 
@@ -151,6 +169,7 @@ x_test, y_test = create_seq(test_features_scaled, test_target_scaled, time_steps
 model = tf.keras.Sequential([
     tf.keras.layers.Conv1D(filters=64, kernel_size=7, activation='relu', padding='same', input_shape=(x_train.shape[1], x_train.shape[2])),
     tf.keras.layers.LSTM(128, return_sequences=True),
+    tf.keras.layers.Dropout(0.3),
     tf.keras.layers.LSTM(128, return_sequences=True),
     tf.keras.layers.LSTM(32),
     tf.keras.layers.Dense(7)
@@ -161,38 +180,79 @@ model.summary()
 
 model.fit(x_train, y_train, epochs=20, batch_size=32, validation_split=0.3)
 
+
+def monte_carlo_predict(model, X, num_samples=100):
+    predictions = np.zeros((num_samples, X.shape[0], 7))
+    for i in range(num_samples):
+        predictions[i] = model(X, training=True)
+    return predictions
+
+
 last_20_days = features_scaled[-30:]
 last_20_days = last_20_days.reshape((1, 30, features_scaled.shape[1]))
 
-predicted_sm = model.predict(last_20_days)
-predicted_sm = target_scaler.inverse_transform(predicted_sm)
+predictions_mc = monte_carlo_predict(model, last_20_days, num_samples=200)
 
-print("Next 7 days SM forecast:", predicted_sm)
+mean_preds = np.mean(predictions_mc, axis=0)
+lower_bound = np.percentile(predictions_mc, 2.5, axis=0)
+upper_bound = np.percentile(predictions_mc, 97.5, axis=0)
+
+mean_preds = target_scaler.inverse_transform(mean_preds)[0]
+lower_bound = target_scaler.inverse_transform(lower_bound)[0]
+upper_bound = target_scaler.inverse_transform(upper_bound)[0]
+
+print(f"Predicted SM (Mean): {mean_preds}")
+print(f"Lower Bound (2.5%): {lower_bound}")
+print(f"Upper Bound (97.5%): {upper_bound}")
+
+# predicted_sm = model.predict(last_20_days)
+# predicted_sm = target_scaler.inverse_transform(predicted_sm)
+#
+# print("Next 7 days SM forecast:", predicted_sm)
 
 
-predicted_test_scaled = model.predict(x_test)
-predicted_test = target_scaler.inverse_transform(predicted_test_scaled)
-y_test_original = target_scaler.inverse_transform(y_test)
+# predicted_test_scaled = model.predict(x_test)
+# predicted_test = target_scaler.inverse_transform(predicted_test_scaled)
 
-# Evaluate for each day
+
+predictions_mc_test = monte_carlo_predict(model, x_test, num_samples=100)
+
+mean_preds_test = np.mean(predictions_mc_test, axis=0)
+lower_bound_test = np.percentile(predictions_mc_test, 2.5, axis=0)
+upper_bound_test = np.percentile(predictions_mc_test, 97.5, axis=0)
+
+mean_preds_test = target_scaler.inverse_transform(mean_preds_test)
+lower_bound_test = target_scaler.inverse_transform(lower_bound_test)
+upper_bound_test = target_scaler.inverse_transform(upper_bound_test)
+
+y_true = target_scaler.inverse_transform(y_test)
+
+
 for i in range(7):
-    r2 = r2_score(y_test_original[:, i], predicted_test[:, i])
-    rmse = np.sqrt(mean_squared_error(y_test_original[:, i], predicted_test[:, i]))
-    print(f"Day {i+1} - R²: {r2:.4f}, RMSE: {rmse:.4f} m³/m³")
+    r2 = r2_score(y_true[:, i], mean_preds_test[:, i])
+    rmse = np.sqrt(mean_squared_error(y_true[:, i], mean_preds_test[:, i]))
+    print(f"Day {i+1} - R²: {r2:.4f}, RMSE: {rmse:.4f}")
 
 
 fig, axs = plt.subplots(3, 1, figsize=(14, 10), sharex="all")
-days = [1, 2, 3]
 
 for i in range(3):
-    axs[i].plot(y_test_original[:, i], label='Actual', color='black')
-    axs[i].plot(predicted_test[:, i], label='Predicted', color='green')
-    axs[i].set_title(f'Soil Moisture Prediction - Day {days[i]}')
-    axs[i].set_ylabel('Soil Moisture (m³/m³)')
+    axs[i].plot(y_true[:, i], label="Actual", color="black")
+    axs[i].plot(mean_preds_test[:, i], label="Predicted (Mean)", color="green")
+    axs[i].fill_between(
+        np.arange(len(mean_preds_test)),
+        lower_bound_test[:, i],
+        upper_bound_test[:, i],
+        color="gray",
+        alpha=0.5,
+        label="95% CI"
+    )
+    axs[i].set_title(f"ERA5 Temperature Prediction - Day {i+1}")
+    axs[i].set_ylabel("Temperature")
     axs[i].legend()
     axs[i].grid(True)
 
-axs[-1].set_xlabel('Time')
+axs[-1].set_xlabel("Time step")
 plt.tight_layout()
 plt.show()
 
