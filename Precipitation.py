@@ -303,9 +303,9 @@ X, y = create_sequences_multivariate(scaled_data, input_len=30, output_len=7, ta
 
 model = tf.keras.Sequential([
     tf.keras.layers.LSTM(64, return_sequences=True, input_shape=(X.shape[1], X.shape[2])),
-    tf.keras.layers.Dropout(0.2),
+    tf.keras.layers.Dropout(0.3),
     tf.keras.layers.LSTM(64),
-    tf.keras.layers.Dropout(0.2),
+    tf.keras.layers.Dropout(0.3),
     tf.keras.layers.Dense(7, activation='relu')
 ])
 

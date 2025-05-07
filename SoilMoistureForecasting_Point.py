@@ -36,6 +36,9 @@ smap_sm_test = "../../Data/SMAP/SMAP_2023_2024_SM_Daily.tif"
 # smap_soiltemp_train = "../../Data/SMAP/SMAP_2016_2022_SoilTemp_Daily.tif"
 # smap_soiltemp_test = "../../Data/SMAP/SMAP_2023_2024_SoilTemp_Daily.tif"
 
+s1_vv_train = "../../Data/Senitnel-1/S1_VV_2016_2022_sorted.tif"
+s1_vv_test = "../../Data/Senitnel-1/S1_VV_2023_2024_sorted.tif"
+
 
 def read_tif(filename):
     with rasterio.open(filename) as f:
@@ -247,8 +250,8 @@ for i in range(3):
         alpha=0.5,
         label="95% CI"
     )
-    axs[i].set_title(f"ERA5 Temperature Prediction - Day {i+1}")
-    axs[i].set_ylabel("Temperature")
+    axs[i].set_title(f"ERA5 SM Prediction - Day {i+1}")
+    axs[i].set_ylabel("SM")
     axs[i].legend()
     axs[i].grid(True)
 
