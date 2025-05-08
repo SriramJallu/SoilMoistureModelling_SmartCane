@@ -288,7 +288,7 @@ mean_preds = scaler.inverse_transform(mean_preds)[0]
 lower_bound = scaler.inverse_transform(lower_bound)[0]
 upper_bound = scaler.inverse_transform(upper_bound)[0]
 
-print(f"Predicted Precipitation (Mean): {mean_preds}")
+print(f"Predicted Temperature (Mean): {mean_preds}")
 print(f"Lower Bound (2.5%): {lower_bound}")
 print(f"Upper Bound (97.5%): {upper_bound}")
 

@@ -165,8 +165,8 @@ def create_seq(x, y, time_steps=20, forecasts=7):
     return np.array(xs), np.array(ys)
 
 
-x_train, y_train = create_seq(features_scaled, target_scaled, time_steps=30, forecasts=7)
-x_test, y_test = create_seq(test_features_scaled, test_target_scaled, time_steps=30, forecasts=7)
+x_train, y_train = create_seq(features_scaled, target_scaled, time_steps=60, forecasts=7)
+x_test, y_test = create_seq(test_features_scaled, test_target_scaled, time_steps=60, forecasts=7)
 
 
 model = tf.keras.Sequential([
@@ -191,8 +191,8 @@ def monte_carlo_predict(model, X, num_samples=100):
     return predictions
 
 
-last_20_days = features_scaled[-30:]
-last_20_days = last_20_days.reshape((1, 30, features_scaled.shape[1]))
+last_20_days = features_scaled[-60:]
+last_20_days = last_20_days.reshape((1, 60, features_scaled.shape[1]))
 
 predictions_mc = monte_carlo_predict(model, last_20_days, num_samples=200)
 
@@ -250,7 +250,7 @@ for i in range(3):
         alpha=0.5,
         label="95% CI"
     )
-    axs[i].set_title(f"ERA5 SM Prediction - Day {i+1}")
+    axs[i].set_title(f"SM Prediction - Day {i+1}")
     axs[i].set_ylabel("SM")
     axs[i].legend()
     axs[i].grid(True)
