@@ -83,13 +83,8 @@ smap_sm_test_data, smap_sm_test_transform = read_tif(smap_sm_test)
 s1_vv_train_data, s1_vv_train_transform = read_tif(s1_vv_train)
 s1_vv_test_data, s1_vv_test_transform = read_tif(s1_vv_test)
 
-# print(s1_vv_train_data.shape)
-
 era5_row, era5_col = get_pixels_values(pt_lat, pt_lon, era5_precip_train_transform)
 s1_row, s1_col = get_pixels_values_s1(pt_lat, pt_lon, s1_vv_train_transform)
-
-# print(s1_row, s1_col)
-# print(era5_row, era5_col)
 
 ########################################################################################################################
 # Filtering Train Data
@@ -103,8 +98,6 @@ era5_train_et = era5_et_train_data[:, era5_row, era5_col]
 era5_train_soiltemp = era5_soiltemp_train_data[:, era5_row, era5_col]
 smap_train_sm = smap_sm_train_data[:, era5_row, era5_col]
 s1_train_vv = s1_vv_train_data[:, s1_row, s1_col]
-
-# print(s1_train_vv)
 
 ########################################################################################################################
 # Filtering Test Data
@@ -146,21 +139,227 @@ with rasterio.open(s1_vv_train) as src:
     s1_crs = src.crs
 
 s1_train_dates = pd.to_datetime(original_band_names)
-# print(s1_dates)
+
 
 vv_series = pd.Series(s1_train_vv, index=s1_train_dates)
 vv_daily = vv_series.reindex(train_df["Date"]).ffill()
 train_df["VV_lag"] = vv_daily.values
 
 
-# last_vv_dates = vv_series.index.to_series().reindex(train_df["Date"]).ffill()
-# train_df["Days_Since_VV"] = (train_df["Date"].reset_index(drop=True) - last_vv_dates.reset_index(drop=True)).dt.days
-
 print(train_df.head(20))
 print(train_df.describe())
 pd.set_option('display.max_columns', None)
 print(train_df.drop(columns=["Date"]).corr())
 pd.reset_option('display.max_columns')
+
+
+test_dates = pd.date_range(start="2023-01-01", end="2024-12-31", freq="D")
+
+test_df = pd.DataFrame({
+    "Date" : test_dates,
+    "Precip" : era5_test_precip,
+    "Temp" : era5_test_temp,
+    "RH" : era5_test_rh,
+    "WindSpeed" : era5_test_windspeed,
+    "Radiation" : era5_test_radiation,
+    "ET" : era5_test_et,
+    "SoilTemp" : era5_test_soiltemp,
+    "SM" : smap_test_sm
+})
+
+
+with rasterio.open(s1_vv_test) as src:
+    data1 = src.read()
+    original_band_names = src.descriptions
+    transform1 = src.transform
+    profile1 = src.profile
+    s1_crs1 = src.crs
+
+s1_test_dates = pd.to_datetime(original_band_names)
+print(s1_test_dates)
+
+test_df = test_df[test_df["Date"] >= '2023-01-04']
+
+vv_series = pd.Series(s1_test_vv, index=s1_test_dates)
+vv_daily = vv_series.reindex(test_df["Date"]).ffill()
+test_df["VV_lag"] = vv_daily.values
+
+
+print(test_df.head(20))
+print(test_df.describe())
+
+
+train_features = train_df.drop(columns=["Date", "SM"])
+train_target = train_df["SM"]
+
+test_features = test_df.drop(columns=["Date", "SM"])
+test_target = test_df["SM"]
+
+features_scaler = MinMaxScaler()
+target_scaler = MinMaxScaler()
+
+features_scaled = features_scaler.fit_transform(train_features)
+target_scaled = target_scaler.fit_transform(train_target.values.reshape(-1, 1))
+
+test_features_scaled = features_scaler.transform(test_features)
+test_target_scaled = target_scaler.transform(test_target.values.reshape(-1, 1))
+
+
+def create_seq(x, y, time_steps=20, forecasts=7):
+    xs, ys = [], []
+    for i in range(len(x) - time_steps - forecasts + 1):
+        xs.append(x[i:i+time_steps])
+        ys.append(y[i+time_steps:i+time_steps+forecasts].flatten())
+    return np.array(xs), np.array(ys)
+
+
+x_train, y_train = create_seq(features_scaled, target_scaled, time_steps=60, forecasts=7)
+x_test, y_test = create_seq(test_features_scaled, test_target_scaled, time_steps=60, forecasts=7)
+
+
+# model = tf.keras.Sequential([
+#     tf.keras.layers.Conv1D(filters=64, kernel_size=7, activation='relu', padding='same', input_shape=(x_train.shape[1], x_train.shape[2])),
+#     tf.keras.layers.LSTM(128, return_sequences=True),
+#     tf.keras.layers.Dropout(0.3),
+#     tf.keras.layers.LSTM(128, return_sequences=True),
+#     tf.keras.layers.LSTM(32),
+#     tf.keras.layers.Dense(7)
+# ])
+#
+# model.compile(optimizer='adam', loss='mse')
+# model.summary()
+
+input_seq = tf.keras.Input(shape=(x_train.shape[1], x_train.shape[2]))
+
+cnn = tf.keras.layers.Conv1D(64, kernel_size=7, activation='relu')(input_seq)
+cnn = tf.keras.layers.Conv1D(64, kernel_size=7, activation='relu')(cnn)
+cnn = tf.keras.layers.Dropout(0.3)(cnn)
+cnn = tf.keras.layers.Flatten()(cnn)
+cnn = tf.keras.layers.Dense(64, activation='relu')(cnn)
+
+lstm = tf.keras.layers.LSTM(128, return_sequences=True)(input_seq)
+lstm = tf.keras.layers.Dropout(0.3)(lstm)
+lstm = tf.keras.layers.LSTM(128)(lstm)
+lstm = tf.keras.layers.Dense(64)(lstm)
+
+merged = tf.keras.layers.Concatenate()([cnn, lstm])
+merged = tf.keras.layers.Dense(10, activation='relu')(merged)
+output = tf.keras.layers.Dense(7, activation='relu')(merged)
+
+model = tf.keras.models.Model(inputs=input_seq, outputs=output)
+
+model.compile(optimizer='adam', loss='mse')
+model.summary()
+
+model.fit(x_train, y_train, epochs=40, batch_size=32, validation_split=0.3)
+
+
+def monte_carlo_predict(model, X, num_samples=100):
+    predictions = np.zeros((num_samples, X.shape[0], 7))
+    for i in range(num_samples):
+        predictions[i] = model(X, training=True)
+    return predictions
+
+
+last_20_days = features_scaled[-60:]
+last_20_days = last_20_days.reshape((1, 60, features_scaled.shape[1]))
+
+predictions_mc = monte_carlo_predict(model, last_20_days, num_samples=200)
+
+mean_preds = np.mean(predictions_mc, axis=0)
+lower_bound = np.percentile(predictions_mc, 2.5, axis=0)
+upper_bound = np.percentile(predictions_mc, 97.5, axis=0)
+
+mean_preds = target_scaler.inverse_transform(mean_preds)[0]
+lower_bound = target_scaler.inverse_transform(lower_bound)[0]
+upper_bound = target_scaler.inverse_transform(upper_bound)[0]
+
+print(f"Predicted SM (Mean): {mean_preds}")
+print(f"Lower Bound (2.5%): {lower_bound}")
+print(f"Upper Bound (97.5%): {upper_bound}")
+
+
+predictions_mc_test = monte_carlo_predict(model, x_test, num_samples=200)
+
+mean_preds_test = np.mean(predictions_mc_test, axis=0)
+lower_bound_test = np.percentile(predictions_mc_test, 2.5, axis=0)
+upper_bound_test = np.percentile(predictions_mc_test, 97.5, axis=0)
+
+mean_preds_test = target_scaler.inverse_transform(mean_preds_test)
+lower_bound_test = target_scaler.inverse_transform(lower_bound_test)
+upper_bound_test = target_scaler.inverse_transform(upper_bound_test)
+
+y_true = target_scaler.inverse_transform(y_test)
+
+for i in range(7):
+    r2 = r2_score(y_true[:, i], mean_preds_test[:, i])
+    rmse = np.sqrt(mean_squared_error(y_true[:, i], mean_preds_test[:, i]))
+    print(f"Day {i+1} - R²: {r2:.4f}, RMSE: {rmse:.4f}")
+
+
+fig, axs = plt.subplots(3, 1, figsize=(14, 10), sharex="all")
+
+for i in range(3):
+    axs[i].plot(y_true[:, i], label="Actual", color="black")
+    axs[i].plot(mean_preds_test[:, i], label="Predicted (Mean)", color="green")
+    axs[i].fill_between(
+        np.arange(len(mean_preds_test)),
+        lower_bound_test[:, i],
+        upper_bound_test[:, i],
+        color="gray",
+        alpha=0.5,
+        label="95% CI"
+    )
+    axs[i].set_title(f"SM Prediction - Day {i+1}")
+    axs[i].set_ylabel("SM")
+    axs[i].legend()
+    axs[i].grid(True)
+
+axs[-1].set_xlabel("Time step")
+plt.tight_layout()
+plt.show()
+
+########################################################################################################################
+# print(s1_crs)
+# print(original_band_names)
+# dates = [name.split('_')[-1] for name in original_band_names]
+# dates = pd.to_datetime(dates, errors='coerce')
+#
+# print(dates)
+#
+# valid_indices = [i for i, d in enumerate(dates) if pd.notnull(d)]
+# dates = [dates[i] for i in valid_indices]
+# data = data[valid_indices, :, :]
+# print(data)
+#
+#
+# sorted_indices = np.argsort(dates)
+# dates_sorted = [dates[i] for i in sorted_indices]
+# data_sorted = data[sorted_indices, :, :]
+# # data_sorted = data_sorted[1:, :, :]
+# # dates_sorted = dates_sorted[1:]
+#
+#
+# profile.update({
+#     "count": data_sorted.shape[0],
+#     "dtype": str(data_sorted.dtype),
+#     "driver": "GTiff"
+# })
+#
+#
+# output_path = "../../Data/Sentinel-1/S1_VV_2023_2024_sorted.tif"
+#
+#
+# with rasterio.open(output_path, "w", **profile) as dst:
+#     for i in range(data_sorted.shape[0]):
+#         dst.write(data_sorted[i, :, :], i + 1)
+#         dst.set_band_description(i + 1, dates_sorted[i].strftime("%Y-%m-%d"))
+#
+# print("Saved sorted GeoTIFF to:", output_path)
+
+
+########################################################################################################################
+# Aggregation
 
 # precip_agg_train = []
 # temp_agg_train = []
@@ -214,44 +413,6 @@ pd.reset_option('display.max_columns')
 # print(train_agg_df.head())
 
 
-test_dates = pd.date_range(start="2023-01-01", end="2024-12-31", freq="D")
-
-test_df = pd.DataFrame({
-    "Date" : test_dates,
-    "Precip" : era5_test_precip,
-    "Temp" : era5_test_temp,
-    "RH" : era5_test_rh,
-    "WindSpeed" : era5_test_windspeed,
-    "Radiation" : era5_test_radiation,
-    "ET" : era5_test_et,
-    "SoilTemp" : era5_test_soiltemp,
-    "SM" : smap_test_sm
-})
-
-
-with rasterio.open(s1_vv_test) as src:
-    data1 = src.read()
-    original_band_names = src.descriptions
-    transform1 = src.transform
-    profile1 = src.profile
-    s1_crs1 = src.crs
-
-s1_test_dates = pd.to_datetime(original_band_names)
-print(s1_test_dates)
-
-test_df = test_df[test_df["Date"] >= '2023-01-04']
-
-vv_series = pd.Series(s1_test_vv, index=s1_test_dates)
-vv_daily = vv_series.reindex(test_df["Date"]).ffill()
-test_df["VV_lag"] = vv_daily.values
-
-# last_vv_dates = vv_series.index.to_series().reindex(test_df["Date"]).ffill()
-# test_df["Days_Since_VV"] = (test_df["Date"].reset_index(drop=True) - last_vv_dates.reset_index(drop=True)).dt.days
-
-print(test_df.head(20))
-print(test_df.describe())
-
-
 # precip_agg_test = []
 # temp_agg_test = []
 # rh_agg_test = []
@@ -301,151 +462,3 @@ print(test_df.describe())
 #     "SoilTemp" : soiltemp_agg_test,
 #     "SM" : sm_agg_test
 # })
-
-
-train_features = train_df.drop(columns=["Date", "SM"])
-train_target = train_df["SM"]
-
-test_features = test_df.drop(columns=["Date", "SM"])
-test_target = test_df["SM"]
-
-features_scaler = MinMaxScaler()
-target_scaler = MinMaxScaler()
-
-features_scaled = features_scaler.fit_transform(train_features)
-target_scaled = target_scaler.fit_transform(train_target.values.reshape(-1, 1))
-
-test_features_scaled = features_scaler.transform(test_features)
-test_target_scaled = target_scaler.transform(test_target.values.reshape(-1, 1))
-
-
-def create_seq(x, y, time_steps=20, forecasts=7):
-    xs, ys = [], []
-    for i in range(len(x) - time_steps - forecasts + 1):
-        xs.append(x[i:i+time_steps])
-        ys.append(y[i+time_steps:i+time_steps+forecasts].flatten())
-    return np.array(xs), np.array(ys)
-
-
-x_train, y_train = create_seq(features_scaled, target_scaled, time_steps=60, forecasts=7)
-x_test, y_test = create_seq(test_features_scaled, test_target_scaled, time_steps=60, forecasts=7)
-
-
-model = tf.keras.Sequential([
-    tf.keras.layers.Conv1D(filters=64, kernel_size=7, activation='relu', padding='same', input_shape=(x_train.shape[1], x_train.shape[2])),
-    tf.keras.layers.LSTM(128, return_sequences=True),
-    tf.keras.layers.Dropout(0.3),
-    tf.keras.layers.LSTM(128, return_sequences=True),
-    tf.keras.layers.LSTM(32),
-    tf.keras.layers.Dense(7)
-])
-
-model.compile(optimizer='adam', loss='mse')
-model.summary()
-
-model.fit(x_train, y_train, epochs=20, batch_size=32, validation_split=0.3)
-
-
-def monte_carlo_predict(model, X, num_samples=100):
-    predictions = np.zeros((num_samples, X.shape[0], 7))
-    for i in range(num_samples):
-        predictions[i] = model(X, training=True)
-    return predictions
-
-
-last_20_days = features_scaled[-60:]
-last_20_days = last_20_days.reshape((1, 60, features_scaled.shape[1]))
-
-predictions_mc = monte_carlo_predict(model, last_20_days, num_samples=200)
-
-mean_preds = np.mean(predictions_mc, axis=0)
-lower_bound = np.percentile(predictions_mc, 2.5, axis=0)
-upper_bound = np.percentile(predictions_mc, 97.5, axis=0)
-
-mean_preds = target_scaler.inverse_transform(mean_preds)[0]
-lower_bound = target_scaler.inverse_transform(lower_bound)[0]
-upper_bound = target_scaler.inverse_transform(upper_bound)[0]
-
-print(f"Predicted SM (Mean): {mean_preds}")
-print(f"Lower Bound (2.5%): {lower_bound}")
-print(f"Upper Bound (97.5%): {upper_bound}")
-
-
-predictions_mc_test = monte_carlo_predict(model, x_test, num_samples=100)
-
-mean_preds_test = np.mean(predictions_mc_test, axis=0)
-lower_bound_test = np.percentile(predictions_mc_test, 2.5, axis=0)
-upper_bound_test = np.percentile(predictions_mc_test, 97.5, axis=0)
-
-mean_preds_test = target_scaler.inverse_transform(mean_preds_test)
-lower_bound_test = target_scaler.inverse_transform(lower_bound_test)
-upper_bound_test = target_scaler.inverse_transform(upper_bound_test)
-
-y_true = target_scaler.inverse_transform(y_test)
-
-for i in range(7):
-    r2 = r2_score(y_true[:, i], mean_preds_test[:, i])
-    rmse = np.sqrt(mean_squared_error(y_true[:, i], mean_preds_test[:, i]))
-    print(f"Day {i+1} - R²: {r2:.4f}, RMSE: {rmse:.4f}")
-
-
-fig, axs = plt.subplots(3, 1, figsize=(14, 10), sharex="all")
-
-for i in range(3):
-    axs[i].plot(y_true[:, i], label="Actual", color="black")
-    axs[i].plot(mean_preds_test[:, i], label="Predicted (Mean)", color="green")
-    axs[i].fill_between(
-        np.arange(len(mean_preds_test)),
-        lower_bound_test[:, i],
-        upper_bound_test[:, i],
-        color="gray",
-        alpha=0.5,
-        label="95% CI"
-    )
-    axs[i].set_title(f"SM Prediction - Day {i+1}")
-    axs[i].set_ylabel("SM")
-    axs[i].legend()
-    axs[i].grid(True)
-
-axs[-1].set_xlabel("Time step")
-plt.tight_layout()
-plt.show()
-########################################################################################################################
-# print(s1_crs)
-# print(original_band_names)
-# dates = [name.split('_')[-1] for name in original_band_names]
-# dates = pd.to_datetime(dates, errors='coerce')
-#
-# print(dates)
-#
-# valid_indices = [i for i, d in enumerate(dates) if pd.notnull(d)]
-# dates = [dates[i] for i in valid_indices]
-# data = data[valid_indices, :, :]
-# print(data)
-#
-#
-# sorted_indices = np.argsort(dates)
-# dates_sorted = [dates[i] for i in sorted_indices]
-# data_sorted = data[sorted_indices, :, :]
-# # data_sorted = data_sorted[1:, :, :]
-# # dates_sorted = dates_sorted[1:]
-#
-#
-# profile.update({
-#     "count": data_sorted.shape[0],
-#     "dtype": str(data_sorted.dtype),
-#     "driver": "GTiff"
-# })
-#
-#
-# output_path = "../../Data/Sentinel-1/S1_VV_2023_2024_sorted.tif"
-#
-#
-# with rasterio.open(output_path, "w", **profile) as dst:
-#     for i in range(data_sorted.shape[0]):
-#         dst.write(data_sorted[i, :, :], i + 1)
-#         dst.set_band_description(i + 1, dates_sorted[i].strftime("%Y-%m-%d"))
-#
-# print("Saved sorted GeoTIFF to:", output_path)
-
-

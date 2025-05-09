@@ -169,19 +169,41 @@ x_train, y_train = create_seq(features_scaled, target_scaled, time_steps=60, for
 x_test, y_test = create_seq(test_features_scaled, test_target_scaled, time_steps=60, forecasts=7)
 
 
-model = tf.keras.Sequential([
-    tf.keras.layers.Conv1D(filters=64, kernel_size=7, activation='relu', padding='same', input_shape=(x_train.shape[1], x_train.shape[2])),
-    tf.keras.layers.LSTM(128, return_sequences=True),
-    tf.keras.layers.Dropout(0.3),
-    tf.keras.layers.LSTM(128, return_sequences=True),
-    tf.keras.layers.LSTM(32),
-    tf.keras.layers.Dense(7)
-])
+# model = tf.keras.Sequential([
+#     tf.keras.layers.Conv1D(filters=64, kernel_size=7, activation='relu', padding='same', input_shape=(x_train.shape[1], x_train.shape[2])),
+#     tf.keras.layers.LSTM(128, return_sequences=True),
+#     tf.keras.layers.Dropout(0.3),
+#     tf.keras.layers.LSTM(128, return_sequences=True),
+#     tf.keras.layers.LSTM(32),
+#     tf.keras.layers.Dense(7)
+# ])
+#
+# model.compile(optimizer='adam', loss='mse')
+# model.summary()
+
+input_seq = tf.keras.Input(shape=(x_train.shape[1], x_train.shape[2]))
+
+cnn = tf.keras.layers.Conv1D(64, kernel_size=7, activation='relu')(input_seq)
+cnn = tf.keras.layers.Conv1D(64, kernel_size=7, activation='relu')(cnn)
+cnn = tf.keras.layers.Dropout(0.3)(cnn)
+cnn = tf.keras.layers.Flatten()(cnn)
+cnn = tf.keras.layers.Dense(64, activation='relu')(cnn)
+
+lstm = tf.keras.layers.LSTM(128, return_sequences=True)(input_seq)
+lstm = tf.keras.layers.Dropout(0.3)(lstm)
+lstm = tf.keras.layers.LSTM(128)(lstm)
+lstm = tf.keras.layers.Dense(64)(lstm)
+
+merged = tf.keras.layers.Concatenate()([cnn, lstm])
+merged = tf.keras.layers.Dense(10, activation='relu')(merged)
+output = tf.keras.layers.Dense(7, activation='relu')(merged)
+
+model = tf.keras.models.Model(inputs=input_seq, outputs=output)
 
 model.compile(optimizer='adam', loss='mse')
 model.summary()
 
-model.fit(x_train, y_train, epochs=20, batch_size=32, validation_split=0.3)
+model.fit(x_train, y_train, epochs=30, batch_size=32, validation_split=0.3)
 
 
 def monte_carlo_predict(model, X, num_samples=100):
