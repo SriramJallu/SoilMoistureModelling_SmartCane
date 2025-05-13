@@ -129,7 +129,7 @@ train_df = pd.DataFrame({
 train_df = train_df[train_df["Date"] >= '2016-01-01']
 train_df["SM"] = smap_train_sm
 
-train_df = train_df[train_df["Date"] >= '2016-01-29']
+# train_df = train_df[train_df["Date"] >= '2016-01-29']
 
 with rasterio.open(s1_vv_train) as src:
     data = src.read()
@@ -142,8 +142,10 @@ s1_train_dates = pd.to_datetime(original_band_names)
 
 
 vv_series = pd.Series(s1_train_vv, index=s1_train_dates)
-vv_daily = vv_series.reindex(train_df["Date"]).ffill()
-train_df["VV_lag"] = vv_daily.values
+vv_daily = vv_series.reindex(train_df["Date"])
+train_df["VV_lag"] = vv_daily.fillna(0).values
+train_df["VV_missing_flag"] = vv_daily.isna().astype(int).values
+# train_df["DoY"] = train_df["Date"].dt.dayofyear
 
 
 print(train_df.head(20))
@@ -178,11 +180,13 @@ with rasterio.open(s1_vv_test) as src:
 s1_test_dates = pd.to_datetime(original_band_names)
 print(s1_test_dates)
 
-test_df = test_df[test_df["Date"] >= '2023-01-04']
+# test_df = test_df[test_df["Date"] >= '2023-01-04']
 
 vv_series = pd.Series(s1_test_vv, index=s1_test_dates)
-vv_daily = vv_series.reindex(test_df["Date"]).ffill()
-test_df["VV_lag"] = vv_daily.values
+vv_daily = vv_series.reindex(test_df["Date"])
+test_df["VV_lag"] = vv_daily.fillna(0).values
+test_df["VV_missing_flag"] = vv_daily.isna().astype(int).values
+# test_df["DoY"] = test_df["Date"].dt.dayofyear
 
 
 print(test_df.head(20))
