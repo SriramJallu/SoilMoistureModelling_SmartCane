@@ -37,6 +37,9 @@ pt_lat, pt_lon = -17.33091, 34.96124
 s1_vv_train = "../../Data/Sentinel-1/S1_VV_2016_2022_sorted.tif"
 s1_vv_test = "../../Data/Sentinel-1/S1_VV_2023_2024_sorted.tif"
 
+s1_vh_train = "../../Data/Sentinel-1/S1_VH_2017_2022_sorted.tif"
+s1_vh_test = "../../Data/Sentinel-1/S1_VH_2023_2024_sorted.tif"
+
 era5_precip_train = "../../Data/ERA5/ERA5_2015_2022_Precip_Daily.tif"
 era5_precip_test = "../../Data/ERA5/ERA5_2023_2024_Precip_Daily.tif"
 era5_temp_train = "../../Data/ERA5/ERA5_2015_2022_Temp_Daily.tif"
@@ -83,6 +86,9 @@ smap_sm_test_data, smap_sm_test_transform = read_tif(smap_sm_test)
 s1_vv_train_data, s1_vv_train_transform = read_tif(s1_vv_train)
 s1_vv_test_data, s1_vv_test_transform = read_tif(s1_vv_test)
 
+s1_vh_train_data, s1_vh_train_transform = read_tif(s1_vh_train)
+s1_vh_test_data, s1_vh_test_transform = read_tif(s1_vh_test)
+
 era5_row, era5_col = get_pixels_values(pt_lat, pt_lon, era5_precip_train_transform)
 s1_row, s1_col = get_pixels_values_s1(pt_lat, pt_lon, s1_vv_train_transform)
 
@@ -98,6 +104,7 @@ era5_train_et = era5_et_train_data[:, era5_row, era5_col]
 era5_train_soiltemp = era5_soiltemp_train_data[:, era5_row, era5_col]
 smap_train_sm = smap_sm_train_data[:, era5_row, era5_col]
 s1_train_vv = s1_vv_train_data[:, s1_row, s1_col]
+s1_train_vh = s1_vh_train_data[:, s1_row, s1_col]
 
 ########################################################################################################################
 # Filtering Test Data
@@ -111,6 +118,7 @@ era5_test_et = era5_et_test_data[:, era5_row, era5_col]
 era5_test_soiltemp = era5_soiltemp_test_data[:, era5_row, era5_col]
 smap_test_sm = smap_sm_test_data[:, era5_row, era5_col]
 s1_test_vv = s1_vv_test_data[:, s1_row, s1_col]
+s1_test_vh = s1_vh_test_data[:, s1_row, s1_col]
 
 train_dates = pd.date_range(start="2015-01-01", end="2022-12-31", freq="D")
 
@@ -125,11 +133,10 @@ train_df = pd.DataFrame({
     "SoilTemp" : era5_train_soiltemp
 })
 
-
 train_df = train_df[train_df["Date"] >= '2016-01-01']
 train_df["SM"] = smap_train_sm
 
-# train_df = train_df[train_df["Date"] >= '2016-01-29']
+train_df = train_df[train_df["Date"] >= '2017-01-01']
 
 with rasterio.open(s1_vv_train) as src:
     data = src.read()
@@ -146,6 +153,19 @@ vv_daily = vv_series.reindex(train_df["Date"])
 train_df["VV_lag"] = vv_daily.fillna(0).values
 train_df["VV_missing_flag"] = vv_daily.isna().astype(int).values
 # train_df["DoY"] = train_df["Date"].dt.dayofyear
+
+with rasterio.open(s1_vh_train) as src:
+    data_vh = src.read()
+    original_band_names_vh = src.descriptions
+    transform_vh = src.transform
+    profile_vh = src.profile
+    s1_crs_vh = src.crs
+
+s1_vh_train_dates = pd.to_datetime(original_band_names_vh)
+vh_series = pd.Series(s1_train_vh, index=s1_vh_train_dates)
+vh_daily = vh_series.reindex(train_df["Date"])
+train_df["VH_lag"] = vh_daily.fillna(0).values
+train_df["VH_missing_flag"] = vh_daily.isna().astype(int).values
 
 
 print(train_df.head(20))
@@ -172,13 +192,13 @@ test_df = pd.DataFrame({
 
 with rasterio.open(s1_vv_test) as src:
     data1 = src.read()
-    original_band_names = src.descriptions
+    original_band_names1 = src.descriptions
     transform1 = src.transform
     profile1 = src.profile
     s1_crs1 = src.crs
 
-s1_test_dates = pd.to_datetime(original_band_names)
-print(s1_test_dates)
+s1_test_dates = pd.to_datetime(original_band_names1)
+# print(s1_test_dates)
 
 # test_df = test_df[test_df["Date"] >= '2023-01-04']
 
@@ -187,6 +207,23 @@ vv_daily = vv_series.reindex(test_df["Date"])
 test_df["VV_lag"] = vv_daily.fillna(0).values
 test_df["VV_missing_flag"] = vv_daily.isna().astype(int).values
 # test_df["DoY"] = test_df["Date"].dt.dayofyear
+
+with rasterio.open(s1_vh_test) as src:
+    data1_vh = src.read()
+    original_band_names1_vh = src.descriptions
+    transform1_vh = src.transform
+    profile1_vh = src.profile
+    s1_crs1_vh = src.crs
+
+s1_vh_test_dates = pd.to_datetime(original_band_names1_vh)
+# print(s1_test_dates)
+
+# test_df = test_df[test_df["Date"] >= '2023-01-04']
+
+vh_series = pd.Series(s1_test_vh, index=s1_vh_test_dates)
+vh_daily = vv_series.reindex(test_df["Date"])
+test_df["VH_lag"] = vh_daily.fillna(0).values
+test_df["VH_missing_flag"] = vh_daily.isna().astype(int).values
 
 
 print(test_df.head(20))
@@ -324,22 +361,31 @@ plt.tight_layout()
 plt.show()
 
 ########################################################################################################################
+
+# with rasterio.open(s1_vh_test) as src:
+#     data = src.read()
+#     original_band_names = src.descriptions
+#     transform = src.transform
+#     profile = src.profile
+#     s1_crs = src.crs
+#
+# # s1_train_dates = pd.to_datetime(original_band_names)
+#
 # print(s1_crs)
-# print(original_band_names)
+#
 # dates = [name.split('_')[-1] for name in original_band_names]
 # dates = pd.to_datetime(dates, errors='coerce')
 #
-# print(dates)
+# # print(dates)
 #
 # valid_indices = [i for i, d in enumerate(dates) if pd.notnull(d)]
 # dates = [dates[i] for i in valid_indices]
 # data = data[valid_indices, :, :]
-# print(data)
-#
 #
 # sorted_indices = np.argsort(dates)
 # dates_sorted = [dates[i] for i in sorted_indices]
 # data_sorted = data[sorted_indices, :, :]
+# print(str(dates_sorted[1].strftime("%Y-%m-%d")))
 # # data_sorted = data_sorted[1:, :, :]
 # # dates_sorted = dates_sorted[1:]
 #
@@ -351,7 +397,7 @@ plt.show()
 # })
 #
 #
-# output_path = "../../Data/Sentinel-1/S1_VV_2023_2024_sorted.tif"
+# output_path = "../../Data/Sentinel-1/S1_VH_2023_2024_sorted.tif"
 #
 #
 # with rasterio.open(output_path, "w", **profile) as dst:

@@ -128,9 +128,9 @@ temp_test_df = pd.DataFrame({
     "RH" : era5_test_rh,
     "WindSpeed" : era5_test_windspeed,
     "Radiation" : era5_test_radiation,
-    "SM" : smap_test_sm,
     "ET" : era5_test_et,
-    "SoilTemp" : era5_test_soiltemp
+    "SoilTemp" : era5_test_soiltemp,
+    "SM": smap_test_sm,
 })
 
 
@@ -138,13 +138,15 @@ temp_train_df = temp_train_df[temp_train_df["Date"] >= '2016-01-01']
 temp_train_df["SM"] = smap_train_sm
 # temp_train_df["SoilTemp"] = smap_train_soiltemp
 
+# temp_test_df = temp_test_df[temp_test_df["Date"] >= '2024-01-01']
+
 print(temp_train_df.head())
 
 
-train_features = temp_train_df.drop(columns=["Date", "SM"])
+train_features = temp_train_df.drop(columns=["Date"])
 train_target = temp_train_df["SM"]
 
-test_features = temp_test_df.drop(columns=["Date", "SM"])
+test_features = temp_test_df.drop(columns=["Date"])
 test_target = temp_test_df["SM"]
 
 features_scaler = MinMaxScaler()
