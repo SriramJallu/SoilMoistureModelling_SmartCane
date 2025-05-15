@@ -33,7 +33,7 @@ def create_sequences(weather_data, sm_data, past_days, forecast_days=7):
         for j in range(W):
             pixel_weather = weather_data[:, i, j, :]
             pixel_sm = sm_data[:, i, j]
-            if np.any(np.isnan(pixel_weather))  or np.any(np.isnan(pixel_sm)):
+            if np.any(np.isnan(pixel_weather)) or np.any(np.isnan(pixel_sm)):
                 continue
             for t in range(T- past_days - forecast_days + 1):
                 weather_X = pixel_weather[t:t+past_days, :]
@@ -69,7 +69,7 @@ smap_sm_train = "../../Data/SMAP/SMAP_2016_2022_SM_Daily.tif"
 smap_sm_test = "../../Data/SMAP/SMAP_2023_2024_SM_Daily.tif"
 
 weather_train = stack_weather(era5_train_paths)[365:]
-weather_test = stack_weather(era5_test_paths)[365:]
+weather_test = stack_weather(era5_test_paths)
 
 sm_train = read_tif(smap_sm_train)
 sm_test = read_tif(smap_sm_test)
@@ -132,8 +132,8 @@ for day in range(forecast_days):
     r2_scores.append(r2)
     print(f"Day {day + 1} — RMSE: {rmse:.4f}, R²: {r2:.4f}")
 
-
-target_pixel = (1, 1)
+print(np.unique(np.array(pixel_indices_test), axis=0))
+target_pixel = (1, 0)
 forecast_day = 0
 
 matching_idx = [idx for idx, pix in enumerate(pixel_indices_test) if pix == target_pixel]
@@ -145,6 +145,19 @@ for day in range(forecast_days):
     print(f"Pixel {target_pixel}, Day {day + 1} — RMSE: {rmse:.4f}, R²: {r2:.4f}")
 
 
+fig, axs = plt.subplots(3, 1, figsize=(14, 10), sharex="all")
+
+for i in range(3):
+    axs[i].plot(y_test_inv[matching_idx, i], label="Actual", color="black")
+    axs[i].plot(y_preds_inv[matching_idx, i], label="Predicted (Mean)", color="green")
+    axs[i].set_title(f"SM Prediction - Day {i+1}")
+    axs[i].set_ylabel("SM")
+    axs[i].legend()
+    axs[i].grid(True)
+
+axs[-1].set_xlabel("Time step")
+plt.tight_layout()
+plt.show()
 
 # true_series = y_test_inv[matching_idx, forecast_day]
 # pred_series = y_preds_inv[matching_idx, forecast_day]

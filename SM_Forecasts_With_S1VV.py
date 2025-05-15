@@ -230,10 +230,10 @@ print(test_df.head(20))
 print(test_df.describe())
 
 
-train_features = train_df.drop(columns=["Date", "SM"])
+train_features = train_df.drop(columns=["Date"])
 train_target = train_df["SM"]
 
-test_features = test_df.drop(columns=["Date", "SM"])
+test_features = test_df.drop(columns=["Date"])
 test_target = test_df["SM"]
 
 features_scaler = MinMaxScaler()
