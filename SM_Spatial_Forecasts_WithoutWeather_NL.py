@@ -56,8 +56,8 @@ def create_seq(y, time_steps=30, forecasts=7):
     return np.array(ys), np.array(seq_ids)
 
 
-train_data = read_tif(gssm_sm_train)[:1461]
-test_data = read_tif(gssm_sm_train)[1461-9:1461-9+366]
+train_data = read_tif(smap_sm_am_train)[:1461-9]
+test_data = read_tif(smap_sm_am_train)[1461-9:1461-9+366]
 
 past_days = 30
 forecast_days = 7
@@ -74,23 +74,23 @@ X_train_2d = X_train.reshape((-1, past_days, 1, 1))
 X_test_2d = X_test.reshape((-1, past_days, 1, 1))
 
 
-# model = tf.keras.Sequential([
-#     tf.keras.layers.Conv2D(32, (3, 1), activation='relu', padding='same', input_shape=(past_days, 1, 1)),
-#     tf.keras.layers.Conv2D(64, (3, 1), activation='relu', padding='same'),
-#     tf.keras.layers.Reshape((past_days, 64)),
-#     tf.keras.layers.LSTM(128, activation='relu', return_sequences=True),
-#     tf.keras.layers.LSTM(128, activation='relu'),
-#     tf.keras.layers.Dense(64, activation='relu'),
-#     tf.keras.layers.Dense(forecast_days)
-# ])
-# model.compile(optimizer='adam', loss='mse')
-#
-# model.fit(X_train_2d, y_train, epochs=1, batch_size=32, validation_split=0.2)
-#
-# model_name = f"sm_conv_lstm_{datetime.now().strftime('%Y%m%d_%H%M%S')}.h5"
-# model.save(f"../../Models/{model_name}")
+model = tf.keras.Sequential([
+    tf.keras.layers.Conv2D(32, (3, 1), activation='relu', padding='same', input_shape=(past_days, 1, 1)),
+    tf.keras.layers.Conv2D(64, (3, 1), activation='relu', padding='same'),
+    tf.keras.layers.Reshape((past_days, 64)),
+    tf.keras.layers.LSTM(128, activation='relu', return_sequences=True),
+    tf.keras.layers.LSTM(128, activation='relu'),
+    tf.keras.layers.Dense(64, activation='relu'),
+    tf.keras.layers.Dense(forecast_days)
+])
+model.compile(optimizer='adam', loss='mse')
 
-model = tf.keras.models.load_model("../../Models/sm_conv_lstm_20250520_143107.h5")
+model.fit(X_train_2d, y_train, epochs=1, batch_size=32, validation_split=0.2)
+
+model_name = f"sm_conv_lstm_{datetime.now().strftime('%Y%m%d_%H%M%S')}.h5"
+model.save(f"../../Models/{model_name}")
+
+# model = tf.keras.models.load_model("../../Models/sm_conv_lstm_20250520_143107.h5")
 y_pred = model.predict(X_test_2d)
 
 rmse_scores = []
@@ -104,8 +104,8 @@ sm_test["Date time"] = pd.to_datetime(sm_test["Date time"], format='%d-%m-%Y %H:
 sm_test = sm_test[sm_test["Date time"] >= '2020-01-01']
 
 sm_test = sm_test.set_index("Date time")
-# sm_test = sm_test.resample("D").mean()
-sm_test = sm_test[sm_test.index.time == pd.to_datetime("06:00:00").time()]
+sm_test = sm_test.resample("D").mean()
+# sm_test = sm_test[sm_test.index.time == pd.to_datetime("06:00:00").time()]
 
 sm_test_insitu, insitu_seq = create_seq(sm_test[" 5 cm SM"], 30 , 7)
 print(sm_test_insitu.shape)
@@ -131,6 +131,7 @@ print("Matching sequences for target pixel:", len(matching_indices))
 
 for day in range(forecast_days):
     true_series = sm_test_insitu[:, day]
+    # true_series = y_test[matching_indices, day]
     pred_series = y_pred[matching_indices, day]
     rmse = np.sqrt(mean_squared_error(true_series, pred_series))
     r2 = r2_score(true_series, pred_series)
@@ -140,6 +141,7 @@ fig, axs = plt.subplots(3, 1, figsize=(14, 10), sharex="all")
 
 for i in range(3):
     axs[i].plot(sm_test_insitu[:, i], label="Actual", color="black")
+    # axs[i].plot(y_test[matching_indices, i], label="Actual", color="black")
     axs[i].plot(y_pred[matching_indices, i], label="Predicted (Mean)", color="green")
     axs[i].set_title(f"SM Prediction - Day {i+1}")
     axs[i].set_ylabel("SM")
