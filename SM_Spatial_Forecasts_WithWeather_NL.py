@@ -80,7 +80,7 @@ era5_train_paths = [
 
 smap_sm_am_train = "../../Data/SMAP/SMAP_2016_2022_SoilMoisture_AM_NL_Daily.tif"
 smap_sm_pm_train = "../../Data/SMAP/SMAP_2016_2022_SoilMoisture_PM_NL_Daily.tif"
-sm_test_path = "../../Data/dataverse_files/1_station_measurements/2_calibrated/ITCSM_05_cd.csv"
+sm_test_path = "../../Data/dataverse_files/1_station_measurements/2_calibrated/ITCSM_14_cd.csv"
 gssm_sm_train = "../../Data/GSSM/GSSM_2016_2020_SM_NL_Daily_1km.tif"
 
 weather_train = stack_weather(era5_train_paths)[60:1461]
@@ -152,18 +152,23 @@ y_test_inv = target_scaler.inverse_transform(y_test.reshape(-1, 1)).reshape(y_te
 
 # print(np.unique(np.array(pixel_indices_test), axis=0))
 
-headers = pd.read_csv(sm_test_path, skiprows=18, nrows=0).columns.tolist()
-sm_test = pd.read_csv(sm_test_path, skiprows=20, parse_dates=["Date time"], names=headers)
+headers = pd.read_csv(sm_test_path, skiprows=20, nrows=0).columns.tolist()
+sm_test = pd.read_csv(sm_test_path, skiprows=22, parse_dates=["Date time"], names=headers)
 
 sm_test["Date time"] = pd.to_datetime(sm_test["Date time"], format='%d-%m-%Y %H:%M', errors='coerce')
 sm_test = sm_test[sm_test["Date time"] >= '2020-01-01']
+
+# sm_test[" 5 cm SM"] = sm_test[" 5 cm SM"].apply(lambda x: np.nan if x < 0 else x)
+
+# count_neg99 = (sm_test[" 5 cm SM"] == -99.999).sum()
+# print(count_neg99)
 
 sm_test = sm_test.set_index("Date time")
 sm_test = sm_test.resample("D").mean()
 # sm_test = sm_test[sm_test.index.time == pd.to_datetime("06:00:00").time()]
 # print(sm_test.head())
 
-sm_test_insitu = create_seq(sm_test[" 5 cm SM"], 30 , 7)
+sm_test_insitu = create_seq(sm_test[" 5 cm SM"], 30, 7)
 
 with rasterio.open(smap_sm_am_train) as src:
     transform = src.transform
@@ -171,7 +176,7 @@ with rasterio.open(smap_sm_am_train) as src:
 
 transformer = Transformer.from_crs("EPSG:4326", crs, always_xy=True)
 
-lon, lat = 6.69944, 52.27333
+lon, lat = 6.31722, 52.19167
 
 x, y = transformer.transform(lon, lat)
 
@@ -184,8 +189,8 @@ target_pixel = (row, col)
 matching_indices = [idx for idx, pix in enumerate(pixel_indices_test) if pix == target_pixel]
 
 for day in range(forecast_days):
-    # true_series = sm_test_insitu[:, day]
-    true_series = y_test_inv[matching_indices, day]
+    true_series = sm_test_insitu[:, day]
+    # true_series = y_test_inv[matching_indices, day]
     pred_series = y_preds_inv[matching_indices, day]
     rmse = np.sqrt(mean_squared_error(true_series, pred_series))
     r2 = r2_score(true_series, pred_series)
@@ -194,8 +199,8 @@ for day in range(forecast_days):
 fig, axs = plt.subplots(3, 1, figsize=(14, 10), sharex="all")
 
 for i in range(3):
-    # axs[i].plot(sm_test_insitu[:, i], label="Actual", color="black")
-    axs[i].plot(y_test_inv[matching_indices, i], label="Actual", color="black")
+    axs[i].plot(sm_test_insitu[:, i], label="Actual", color="black")
+    # axs[i].plot(y_test_inv[matching_indices, i], label="Actual", color="black")
     axs[i].plot(y_preds_inv[matching_indices, i], label="Predicted (Mean)", color="green")
     axs[i].set_title(f"SM Prediction - Day {i+1}")
     axs[i].set_ylabel("SM")

@@ -147,33 +147,34 @@ print("#######################")
 # plt.show()
 
 
-precip_df = precip_df.set_index("Date")
-precip_df_7d = precip_df.resample("7D").sum().reset_index()
-# print(precip_df_7d.head())
-
-corr_mat_7d = precip_df_7d.drop(columns=["Date"]).corr()
-# print(corr_mat_7d)
-
-r2_mat_7d = corr_mat_7d**2
-
-print("R2 7-Day\n", r2_mat_7d)
-print("#######################")
-
-rmse_df_7d = pd.DataFrame(index=products, columns=products)
-mae_df_7d = pd.DataFrame(index=products, columns=products)
-
-for p1, p2 in itertools.combinations(products, 2):
-    rmse_7d = np.sqrt(mean_squared_error(precip_df_7d[p1], precip_df_7d[p2]))
-    mae_7d = mean_absolute_error(precip_df_7d[p1], precip_df_7d[p2])
-    rmse_df_7d.loc[p1, p2] = rmse_7d/7
-    rmse_df_7d.loc[p2, p1] = rmse_7d/7
-    mae_df_7d.loc[p1, p2] = mae_7d/7
-    mae_df_7d.loc[p2, p1] = mae_7d/7
-
-print("RSME 7-Day\n", rmse_df_7d)
-print("#######################")
-print("MAE 7-Day\n", mae_df_7d)
-print("#######################")
+##### 7-Day comparisions
+# precip_df = precip_df.set_index("Date")
+# precip_df_7d = precip_df.resample("7D").sum().reset_index()
+# # print(precip_df_7d.head())
+#
+# corr_mat_7d = precip_df_7d.drop(columns=["Date"]).corr()
+# # print(corr_mat_7d)
+#
+# r2_mat_7d = corr_mat_7d**2
+#
+# print("R2 7-Day\n", r2_mat_7d)
+# print("#######################")
+#
+# rmse_df_7d = pd.DataFrame(index=products, columns=products)
+# mae_df_7d = pd.DataFrame(index=products, columns=products)
+#
+# for p1, p2 in itertools.combinations(products, 2):
+#     rmse_7d = np.sqrt(mean_squared_error(precip_df_7d[p1], precip_df_7d[p2]))
+#     mae_7d = mean_absolute_error(precip_df_7d[p1], precip_df_7d[p2])
+#     rmse_df_7d.loc[p1, p2] = rmse_7d/7
+#     rmse_df_7d.loc[p2, p1] = rmse_7d/7
+#     mae_df_7d.loc[p1, p2] = mae_7d/7
+#     mae_df_7d.loc[p2, p1] = mae_7d/7
+#
+# print("RSME 7-Day\n", rmse_df_7d)
+# print("#######################")
+# print("MAE 7-Day\n", mae_df_7d)
+# print("#######################")
 
 #
 # plt.figure(figsize=(14, 8))
@@ -226,182 +227,182 @@ print("#######################")
 
 ## Precipitation forecasting
 
-np.random.seed(123)
-random.seed(123)
-tf.random.set_seed(123)
-import statsmodels.api as sm
-
-era5_train_10_22 = "../../Data/ERA5/ERA5_2010_2022_Precip_Daily.tif"
-era5_train_00_09 = "../../Data/ERA5/ERA5_2000_2009_Precip_Daily.tif"
-era5_test = "../../Data/ERA5/ERA5_2023_2024_Precip_Daily.tif"
-
-era5_train_10_22_data, era5_train_dates, era5_train_transform, era5_train_crs, era5_train_bounds = read_tif(era5_train_10_22)
-era5_train_00_09_data, era5_train_dates_00_09, era5_train_transform_00_09, era5_train_crs_00_09, era5_train_bounds_00_09 = read_tif(era5_train_00_09)
-
-era5_test_data, era5_test_dates, era5_test_transform, era5_test_crs, era5_test_bounds = read_tif(era5_test)
-
-era5_train_row, era5_train_col = get_pixels_values(pt_lat, pt_lon, era5_train_transform)
-
-era5_train_10_22_precip = era5_train_10_22_data[:, era5_train_row, era5_train_col]
-era5_train_00_09_precip = era5_train_00_09_data[:, era5_train_row, era5_train_col]
-era5_test_precip = era5_test_data[:, era5_train_row, era5_train_row]
-
-train_dates_10_22 = pd.date_range(start="2010-01-01", end="2022-12-31", freq="D")
-train_dates_00_09 = pd.date_range(start="2000-01-01", end="2009-12-31", freq="D")
-test_dates = pd.date_range(start="2023-01-01", end="2024-12-31", freq="D")
-
-precip_train_10_22_df = pd.DataFrame({
-    "Date" : train_dates_10_22,
-    "ERA5" : era5_train_10_22_precip
-})
-
-precip_train_00_09_df = pd.DataFrame({
-    "Date" : train_dates_00_09,
-    "ERA5" : era5_train_00_09_precip
-})
-
-precip_train_df = pd.concat([precip_train_00_09_df, precip_train_10_22_df], ignore_index=True)
-
-precip_test_df = pd.DataFrame({
-    "Date" : test_dates,
-    "ERA5" : era5_test_precip
-})
-
-precip_train_df = precip_train_df.dropna(subset=["ERA5"])
-
-precip_train_df["Date"] = pd.to_datetime(precip_train_df["Date"])
-precip_train_df.set_index("Date", inplace=True)
-
-precip_train_df["ERA5_Roll7"] = precip_train_df['ERA5'].rolling(7).sum()
-
-precip_train_df["DoY"] = precip_train_df.index.dayofyear
-
-precip_train_df['sin_DoY'] = np.sin(2 * np.pi * precip_train_df["DoY"]/365)
-precip_train_df['cos_DoY'] = np.cos(2 * np.pi * precip_train_df["DoY"]/365)
-
-precip_train_df = precip_train_df.dropna()
-
-features = ["ERA5", "ERA5_Roll7", "sin_DoY", "cos_DoY"]
-target = "ERA5"
-
-data = precip_train_df[features].values
-
-scaler = MinMaxScaler()
-scaled_data = scaler.fit_transform(data)
-
-
-def create_sequences_multivariate(data, input_len=30, output_len=7, target_index=0):
-    X, y = [], []
-    for i in range(len(data) - input_len - output_len + 1):
-        X.append(data[i:i+input_len])
-        y.append(data[i+input_len:i+input_len+output_len, target_index])
-
-    return np.array(X), np.array(y)
-
-
-X, y = create_sequences_multivariate(scaled_data, input_len=30, output_len=7, target_index=0)
-
-model = tf.keras.Sequential([
-    tf.keras.layers.LSTM(64, return_sequences=True, input_shape=(X.shape[1], X.shape[2])),
-    tf.keras.layers.Dropout(0.3),
-    tf.keras.layers.LSTM(64),
-    tf.keras.layers.Dropout(0.3),
-    tf.keras.layers.Dense(7, activation='relu')
-])
-
-
-model.compile(optimizer='adam', loss='mse')
-model.fit(X, y, epochs=20, batch_size=32, validation_split=0.2)
-
-
-last_30 = scaled_data[-30:].reshape(1, 30, len(features))
-
-
-def monte_carlo_predict(model, X, num_samples=100):
-    predictions = np.zeros((num_samples, X.shape[0], 7))
-    for i in range(num_samples):
-        predictions[i] = model(X, training=True)
-    return predictions
-
-
-predictions_mc = monte_carlo_predict(model, last_30, num_samples=100)
-
-mean_preds = np.mean(predictions_mc, axis=0)[0]
-lower_bound = np.percentile(predictions_mc, 2.5, axis=0)[0]
-upper_bound = np.percentile(predictions_mc, 97.5, axis=0)[0]
-
-
-precip_scaler = MinMaxScaler()
-precip_scaler.fit(precip_train_df[[target]])
-mean_preds = precip_scaler.inverse_transform(mean_preds.reshape(-1, 1)).flatten()
-lower_bound = precip_scaler.inverse_transform(lower_bound.reshape(-1, 1)).flatten()
-upper_bound = precip_scaler.inverse_transform(upper_bound.reshape(-1, 1)).flatten()
-
-print("7-day Forecast:")
-print("Mean:", mean_preds)
-print("Lower 2.5%:", lower_bound)
-print("Upper 97.5%:", upper_bound)
-
-
-precip_test_df = precip_test_df.dropna(subset=["ERA5"])
-precip_test_df["Date"] = pd.to_datetime(precip_test_df["Date"])
-precip_test_df.set_index("Date", inplace=True)
-
-precip_test_df["ERA5_Roll7"] = precip_test_df["ERA5"].rolling(7).mean()
-precip_test_df["DoY"] = precip_test_df.index.dayofyear
-precip_test_df["sin_DoY"] = np.sin(2 * np.pi * precip_test_df["DoY"] / 365)
-precip_test_df["cos_DoY"] = np.cos(2 * np.pi * precip_test_df["DoY"] / 365)
-
-precip_test_df = precip_test_df.dropna()
-
-test_data = precip_test_df[features].values
-scaled_test_data = scaler.transform(test_data)
-
-
-X_test, y_test = create_sequences_multivariate(scaled_test_data, input_len=30, output_len=7, target_index=0)
-
-
-predictions_mc_test = monte_carlo_predict(model, X_test, num_samples=100)
-
-mean_preds_test = np.mean(predictions_mc_test, axis=0)
-lower_bound_test = np.percentile(predictions_mc_test, 2.5, axis=0)
-upper_bound_test = np.percentile(predictions_mc_test, 97.5, axis=0)
-
-
-mean_preds_test_inv = precip_scaler.inverse_transform(mean_preds_test)
-lower_bound_test_inv = precip_scaler.inverse_transform(lower_bound_test)
-upper_bound_test_inv = precip_scaler.inverse_transform(upper_bound_test)
-y_test_inv = precip_scaler.inverse_transform(y_test)
-
-
-for i in range(7):
-    r2 = r2_score(y_test_inv[:, i], mean_preds_test_inv[:, i])
-    rmse = np.sqrt(mean_squared_error(y_test_inv[:, i], mean_preds_test_inv[:, i]))
-    print(f"Day {i+1} - R²: {r2:.4f}, RMSE: {rmse:.4f}")
-
-
-
-fig, axs = plt.subplots(3, 1, figsize=(14, 10), sharex="all")
-
-for i in range(3):
-    axs[i].plot(y_test_inv[:, i+1], label="Actual", color="black")
-    axs[i].plot(mean_preds_test_inv[:, i+1], label="Predicted (Mean)", color="green")
-    axs[i].fill_between(
-        np.arange(len(mean_preds_test_inv)),
-        lower_bound_test_inv[:, i+1],
-        upper_bound_test_inv[:, i+1],
-        color="gray",
-        alpha=0.5,
-        label="97.5% CI"
-    )
-    axs[i].set_title(f"ERA5 Precipitation Prediction - Day {i+1}")
-    axs[i].set_ylabel("Precipitation (mm)")
-    axs[i].legend()
-    axs[i].grid(True)
-
-axs[-1].set_xlabel("Time step")
-plt.tight_layout()
-plt.show()
+# np.random.seed(123)
+# random.seed(123)
+# tf.random.set_seed(123)
+# import statsmodels.api as sm
+#
+# era5_train_10_22 = "../../Data/ERA5/ERA5_2010_2022_Precip_Daily.tif"
+# era5_train_00_09 = "../../Data/ERA5/ERA5_2000_2009_Precip_Daily.tif"
+# era5_test = "../../Data/ERA5/ERA5_2023_2024_Precip_Daily.tif"
+#
+# era5_train_10_22_data, era5_train_dates, era5_train_transform, era5_train_crs, era5_train_bounds = read_tif(era5_train_10_22)
+# era5_train_00_09_data, era5_train_dates_00_09, era5_train_transform_00_09, era5_train_crs_00_09, era5_train_bounds_00_09 = read_tif(era5_train_00_09)
+#
+# era5_test_data, era5_test_dates, era5_test_transform, era5_test_crs, era5_test_bounds = read_tif(era5_test)
+#
+# era5_train_row, era5_train_col = get_pixels_values(pt_lat, pt_lon, era5_train_transform)
+#
+# era5_train_10_22_precip = era5_train_10_22_data[:, era5_train_row, era5_train_col]
+# era5_train_00_09_precip = era5_train_00_09_data[:, era5_train_row, era5_train_col]
+# era5_test_precip = era5_test_data[:, era5_train_row, era5_train_row]
+#
+# train_dates_10_22 = pd.date_range(start="2010-01-01", end="2022-12-31", freq="D")
+# train_dates_00_09 = pd.date_range(start="2000-01-01", end="2009-12-31", freq="D")
+# test_dates = pd.date_range(start="2023-01-01", end="2024-12-31", freq="D")
+#
+# precip_train_10_22_df = pd.DataFrame({
+#     "Date" : train_dates_10_22,
+#     "ERA5" : era5_train_10_22_precip
+# })
+#
+# precip_train_00_09_df = pd.DataFrame({
+#     "Date" : train_dates_00_09,
+#     "ERA5" : era5_train_00_09_precip
+# })
+#
+# precip_train_df = pd.concat([precip_train_00_09_df, precip_train_10_22_df], ignore_index=True)
+#
+# precip_test_df = pd.DataFrame({
+#     "Date" : test_dates,
+#     "ERA5" : era5_test_precip
+# })
+#
+# precip_train_df = precip_train_df.dropna(subset=["ERA5"])
+#
+# precip_train_df["Date"] = pd.to_datetime(precip_train_df["Date"])
+# precip_train_df.set_index("Date", inplace=True)
+#
+# precip_train_df["ERA5_Roll7"] = precip_train_df['ERA5'].rolling(7).sum()
+#
+# precip_train_df["DoY"] = precip_train_df.index.dayofyear
+#
+# precip_train_df['sin_DoY'] = np.sin(2 * np.pi * precip_train_df["DoY"]/365)
+# precip_train_df['cos_DoY'] = np.cos(2 * np.pi * precip_train_df["DoY"]/365)
+#
+# precip_train_df = precip_train_df.dropna()
+#
+# features = ["ERA5", "ERA5_Roll7", "sin_DoY", "cos_DoY"]
+# target = "ERA5"
+#
+# data = precip_train_df[features].values
+#
+# scaler = MinMaxScaler()
+# scaled_data = scaler.fit_transform(data)
+#
+#
+# def create_sequences_multivariate(data, input_len=30, output_len=7, target_index=0):
+#     X, y = [], []
+#     for i in range(len(data) - input_len - output_len + 1):
+#         X.append(data[i:i+input_len])
+#         y.append(data[i+input_len:i+input_len+output_len, target_index])
+#
+#     return np.array(X), np.array(y)
+#
+#
+# X, y = create_sequences_multivariate(scaled_data, input_len=30, output_len=7, target_index=0)
+#
+# model = tf.keras.Sequential([
+#     tf.keras.layers.LSTM(64, return_sequences=True, input_shape=(X.shape[1], X.shape[2])),
+#     tf.keras.layers.Dropout(0.3),
+#     tf.keras.layers.LSTM(64),
+#     tf.keras.layers.Dropout(0.3),
+#     tf.keras.layers.Dense(7, activation='relu')
+# ])
+#
+#
+# model.compile(optimizer='adam', loss='mse')
+# model.fit(X, y, epochs=20, batch_size=32, validation_split=0.2)
+#
+#
+# last_30 = scaled_data[-30:].reshape(1, 30, len(features))
+#
+#
+# def monte_carlo_predict(model, X, num_samples=100):
+#     predictions = np.zeros((num_samples, X.shape[0], 7))
+#     for i in range(num_samples):
+#         predictions[i] = model(X, training=True)
+#     return predictions
+#
+#
+# predictions_mc = monte_carlo_predict(model, last_30, num_samples=100)
+#
+# mean_preds = np.mean(predictions_mc, axis=0)[0]
+# lower_bound = np.percentile(predictions_mc, 2.5, axis=0)[0]
+# upper_bound = np.percentile(predictions_mc, 97.5, axis=0)[0]
+#
+#
+# precip_scaler = MinMaxScaler()
+# precip_scaler.fit(precip_train_df[[target]])
+# mean_preds = precip_scaler.inverse_transform(mean_preds.reshape(-1, 1)).flatten()
+# lower_bound = precip_scaler.inverse_transform(lower_bound.reshape(-1, 1)).flatten()
+# upper_bound = precip_scaler.inverse_transform(upper_bound.reshape(-1, 1)).flatten()
+#
+# print("7-day Forecast:")
+# print("Mean:", mean_preds)
+# print("Lower 2.5%:", lower_bound)
+# print("Upper 97.5%:", upper_bound)
+#
+#
+# precip_test_df = precip_test_df.dropna(subset=["ERA5"])
+# precip_test_df["Date"] = pd.to_datetime(precip_test_df["Date"])
+# precip_test_df.set_index("Date", inplace=True)
+#
+# precip_test_df["ERA5_Roll7"] = precip_test_df["ERA5"].rolling(7).mean()
+# precip_test_df["DoY"] = precip_test_df.index.dayofyear
+# precip_test_df["sin_DoY"] = np.sin(2 * np.pi * precip_test_df["DoY"] / 365)
+# precip_test_df["cos_DoY"] = np.cos(2 * np.pi * precip_test_df["DoY"] / 365)
+#
+# precip_test_df = precip_test_df.dropna()
+#
+# test_data = precip_test_df[features].values
+# scaled_test_data = scaler.transform(test_data)
+#
+#
+# X_test, y_test = create_sequences_multivariate(scaled_test_data, input_len=30, output_len=7, target_index=0)
+#
+#
+# predictions_mc_test = monte_carlo_predict(model, X_test, num_samples=100)
+#
+# mean_preds_test = np.mean(predictions_mc_test, axis=0)
+# lower_bound_test = np.percentile(predictions_mc_test, 2.5, axis=0)
+# upper_bound_test = np.percentile(predictions_mc_test, 97.5, axis=0)
+#
+#
+# mean_preds_test_inv = precip_scaler.inverse_transform(mean_preds_test)
+# lower_bound_test_inv = precip_scaler.inverse_transform(lower_bound_test)
+# upper_bound_test_inv = precip_scaler.inverse_transform(upper_bound_test)
+# y_test_inv = precip_scaler.inverse_transform(y_test)
+#
+#
+# for i in range(7):
+#     r2 = r2_score(y_test_inv[:, i], mean_preds_test_inv[:, i])
+#     rmse = np.sqrt(mean_squared_error(y_test_inv[:, i], mean_preds_test_inv[:, i]))
+#     print(f"Day {i+1} - R²: {r2:.4f}, RMSE: {rmse:.4f}")
+#
+#
+#
+# fig, axs = plt.subplots(3, 1, figsize=(14, 10), sharex="all")
+#
+# for i in range(3):
+#     axs[i].plot(y_test_inv[:, i+1], label="Actual", color="black")
+#     axs[i].plot(mean_preds_test_inv[:, i+1], label="Predicted (Mean)", color="green")
+#     axs[i].fill_between(
+#         np.arange(len(mean_preds_test_inv)),
+#         lower_bound_test_inv[:, i+1],
+#         upper_bound_test_inv[:, i+1],
+#         color="gray",
+#         alpha=0.5,
+#         label="97.5% CI"
+#     )
+#     axs[i].set_title(f"ERA5 Precipitation Prediction - Day {i+1}")
+#     axs[i].set_ylabel("Precipitation (mm)")
+#     axs[i].legend()
+#     axs[i].grid(True)
+#
+# axs[-1].set_xlabel("Time step")
+# plt.tight_layout()
+# plt.show()
 
 # data = precip_train_df["ERA5"].values.reshape(-1, 1)
 #
