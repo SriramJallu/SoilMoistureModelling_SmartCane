@@ -80,7 +80,7 @@ era5_train_paths = [
 
 smap_sm_am_train = "../../Data/SMAP/SMAP_2016_2022_SoilMoisture_AM_NL_Daily.tif"
 smap_sm_pm_train = "../../Data/SMAP/SMAP_2016_2022_SoilMoisture_PM_NL_Daily.tif"
-sm_test_path = "../../Data/dataverse_files/1_station_measurements/2_calibrated/ITCSM_14_cd.csv"
+sm_test_path = "../../Data/dataverse_files/1_station_measurements/2_calibrated/ITCSM_05_cd.csv"
 gssm_sm_train = "../../Data/GSSM/GSSM_2016_2020_SM_NL_Daily_1km.tif"
 
 weather_train = stack_weather(era5_train_paths)[60:1461]
@@ -127,21 +127,21 @@ X_test, y_test, pixel_indices_test = create_sequences(sm_transform, weather_tran
 
 print(X_train.shape, y_train.shape)
 
-# model = tf.keras.Sequential([
-#     tf.keras.layers.Input(shape=(past_days, X_train.shape[-1])),
-#     tf.keras.layers.Conv1D(64, kernel_size=3, activation='relu', padding='same'),
-#     tf.keras.layers.Conv1D(32, kernel_size=3, activation='relu', padding='same'),
-#     tf.keras.layers.LSTM(128, activation='relu', return_sequences=True),
-#     tf.keras.layers.LSTM(128, activation='relu'),
-#     tf.keras.layers.Dense(64, activation='relu'),
-#     tf.keras.layers.Dense(forecast_days)
-# ])
-#
-# model.compile(optimizer='adam', loss='mse')
-# model.fit(X_train, y_train, epochs=1, batch_size=32, validation_split=0.2)
-#
-# model_name = f"sm_weather_conv_lstm_{datetime.now().strftime('%Y%m%d_%H%M%S')}.h5"
-# model.save(f"../../Models/{model_name}")
+model = tf.keras.Sequential([
+    tf.keras.layers.Input(shape=(past_days, X_train.shape[-1])),
+    tf.keras.layers.Conv1D(64, kernel_size=3, activation='relu', padding='same'),
+    tf.keras.layers.Conv1D(32, kernel_size=3, activation='relu', padding='same'),
+    tf.keras.layers.LSTM(128, activation='relu', return_sequences=True),
+    tf.keras.layers.LSTM(128, activation='relu'),
+    tf.keras.layers.Dense(64, activation='relu'),
+    tf.keras.layers.Dense(forecast_days)
+])
+
+model.compile(optimizer='adam', loss='mse')
+model.fit(X_train, y_train, epochs=1, batch_size=32, validation_split=0.2)
+
+model_name = f"sm_weather_conv_lstm_{datetime.now().strftime('%Y%m%d_%H%M%S')}.h5"
+model.save(f"../../Models/{model_name}")
 
 model = tf.keras.models.load_model("../../Models/sm_weather_conv_lstm_20250521_142831.h5")
 y_preds = model.predict(X_test)
@@ -152,8 +152,8 @@ y_test_inv = target_scaler.inverse_transform(y_test.reshape(-1, 1)).reshape(y_te
 
 # print(np.unique(np.array(pixel_indices_test), axis=0))
 
-headers = pd.read_csv(sm_test_path, skiprows=20, nrows=0).columns.tolist()
-sm_test = pd.read_csv(sm_test_path, skiprows=22, parse_dates=["Date time"], names=headers)
+headers = pd.read_csv(sm_test_path, skiprows=21, nrows=0).columns.tolist()
+sm_test = pd.read_csv(sm_test_path, skiprows=23, parse_dates=["Date time"], names=headers)
 
 sm_test["Date time"] = pd.to_datetime(sm_test["Date time"], format='%d-%m-%Y %H:%M', errors='coerce')
 sm_test = sm_test[sm_test["Date time"] >= '2020-01-01']
@@ -176,7 +176,7 @@ with rasterio.open(smap_sm_am_train) as src:
 
 transformer = Transformer.from_crs("EPSG:4326", crs, always_xy=True)
 
-lon, lat = 6.31722, 52.19167
+lon, lat = 6.69944, 52.27333
 
 x, y = transformer.transform(lon, lat)
 
