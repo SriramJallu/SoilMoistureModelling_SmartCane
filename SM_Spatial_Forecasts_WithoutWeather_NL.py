@@ -14,6 +14,7 @@ np.random.seed(123)
 random.seed(123)
 tf.random.set_seed(123)
 
+smap_sm_train = "../../Data/SMAP/SMAP_2016_2022_SM_NL_Daily.tif"
 smap_sm_am_train = "../../Data/SMAP/SMAP_2016_2022_SoilMoisture_AM_NL_Daily.tif"
 smap_sm_pm_train = "../../Data/SMAP/SMAP_2016_2022_SoilMoisture_PM_NL_Daily.tif"
 sm_test_path = "../../Data/dataverse_files/1_station_measurements/2_calibrated/ITCSM_09_cd.csv"
@@ -56,8 +57,24 @@ def create_seq(y, time_steps=30, forecasts=7):
     return np.array(ys), np.array(seq_ids)
 
 
-train_data = read_tif(gssm_sm_train)[:1461-9]
-test_data = read_tif(gssm_sm_train)[1461-9:1461-9+366]
+# train_data = read_tif(gssm_sm_train)[:1461-9]
+# test_data = read_tif(gssm_sm_train)[1461-9:1461-9+366]
+
+smap_sm_am_data = read_tif(smap_sm_am_train)
+smap_sm_pm_data = read_tif(smap_sm_pm_train)
+
+smap_sm_avg_data = np.where(
+    np.isnan(smap_sm_am_data) & np.isnan(smap_sm_pm_data),
+    np.nan,
+    np.nanmean(np.stack([smap_sm_am_data, smap_sm_pm_data]), axis=0)
+)
+
+train_data = smap_sm_avg_data[:1461]
+test_data = smap_sm_avg_data[1461:1461+366]
+
+
+# train_data = read_tif(smap_sm_train)[:1461]
+# test_data = read_tif(smap_sm_train)[1461:1461+366]
 
 past_days = 30
 forecast_days = 7
@@ -74,23 +91,23 @@ X_train_2d = X_train.reshape((-1, past_days, 1, 1))
 X_test_2d = X_test.reshape((-1, past_days, 1, 1))
 
 
-# model = tf.keras.Sequential([
-#     tf.keras.layers.Conv2D(32, (3, 1), activation='relu', padding='same', input_shape=(past_days, 1, 1)),
-#     tf.keras.layers.Conv2D(64, (3, 1), activation='relu', padding='same'),
-#     tf.keras.layers.Reshape((past_days, 64)),
-#     tf.keras.layers.LSTM(128, activation='relu', return_sequences=True),
-#     tf.keras.layers.LSTM(128, activation='relu'),
-#     tf.keras.layers.Dense(64, activation='relu'),
-#     tf.keras.layers.Dense(forecast_days)
-# ])
-# model.compile(optimizer='adam', loss='mse')
-#
-# model.fit(X_train_2d, y_train, epochs=1, batch_size=32, validation_split=0.2)
-#
-# model_name = f"sm_conv_lstm_{datetime.now().strftime('%Y%m%d_%H%M%S')}.h5"
+model = tf.keras.Sequential([
+    tf.keras.layers.Conv2D(32, (3, 1), activation='relu', padding='same', input_shape=(past_days, 1, 1)),
+    tf.keras.layers.Conv2D(64, (3, 1), activation='relu', padding='same'),
+    tf.keras.layers.Reshape((past_days, 64)),
+    tf.keras.layers.LSTM(128, activation='relu', return_sequences=True),
+    tf.keras.layers.LSTM(128, activation='relu'),
+    tf.keras.layers.Dense(64, activation='relu'),
+    tf.keras.layers.Dense(forecast_days)
+])
+model.compile(optimizer='adam', loss='mse')
+
+model.fit(X_train_2d, y_train, epochs=5, batch_size=32, validation_split=0.2)
+
+# model_name = f"sm_smap_conv_lstm_{datetime.now().strftime('%Y%m%d_%H%M%S')}.h5"
 # model.save(f"../../Models/{model_name}")
 
-model = tf.keras.models.load_model("../../Models/sm_conv_lstm_20250521_091753.h5")
+# model = tf.keras.models.load_model("../../Models/sm_conv_lstm_20250521_091753.h5")
 y_pred = model.predict(X_test_2d)
 
 rmse_scores = []
