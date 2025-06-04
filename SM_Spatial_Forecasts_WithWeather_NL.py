@@ -80,26 +80,26 @@ era5_train_paths = [
 
 smap_sm_am_train = "../../Data/SMAP/SMAP_2016_2022_SoilMoisture_AM_NL_Daily.tif"
 smap_sm_pm_train = "../../Data/SMAP/SMAP_2016_2022_SoilMoisture_PM_NL_Daily.tif"
-sm_test_path = "../../Data/dataverse_files/1_station_measurements/2_calibrated/ITCSM_05_cd.csv"
+sm_test_path = "../../Data/dataverse_files/1_station_measurements/2_calibrated/ITCSM_09_cd.csv"
 gssm_sm_train = "../../Data/GSSM/GSSM_2016_2020_SM_NL_Daily_1km.tif"
 
 weather_train = stack_weather(era5_train_paths)[60:1461]
 weather_test = stack_weather(era5_train_paths)[1461:1461+366]
 
-sm_train = read_tif(gssm_sm_train)[51:1461-9]
-sm_test = read_tif(gssm_sm_train)[1461-9:1461-9+366]
+# sm_train = read_tif(gssm_sm_train)[51:1461-9]
+# sm_test = read_tif(gssm_sm_train)[1461-9:1461-9+366]
 
-# smap_sm_am_data = read_tif(smap_sm_am_train)
-# smap_sm_pm_data = read_tif(smap_sm_pm_train)
-#
-# smap_sm_avg_data = np.where(
-#     np.isnan(smap_sm_am_data) & np.isnan(smap_sm_pm_data),
-#     np.nan,
-#     np.nanmean(np.stack([smap_sm_am_data, smap_sm_pm_data]), axis=0)
-# )
-#
-# sm_train = smap_sm_avg_data[60:1461]
-# sm_test = smap_sm_avg_data[1461:1461+366]
+smap_sm_am_data = read_tif(smap_sm_am_train)
+smap_sm_pm_data = read_tif(smap_sm_pm_train)
+
+smap_sm_avg_data = np.where(
+    np.isnan(smap_sm_am_data) & np.isnan(smap_sm_pm_data),
+    np.nan,
+    np.nanmean(np.stack([smap_sm_am_data, smap_sm_pm_data]), axis=0)
+)
+
+sm_train = smap_sm_avg_data[60:1461]
+sm_test = smap_sm_avg_data[1461:1461+366]
 
 print(weather_train.shape)
 print(sm_train.shape)
@@ -139,23 +139,23 @@ X_test, y_test, pixel_indices_test = create_sequences(sm_transform, weather_tran
 
 print(X_train.shape, y_train.shape)
 
-# model = tf.keras.Sequential([
-#     tf.keras.layers.Input(shape=(past_days, X_train.shape[-1])),
-#     tf.keras.layers.Conv1D(32, kernel_size=3, activation='relu', padding='same'),
-#     tf.keras.layers.Conv1D(64, kernel_size=3, activation='relu', padding='same'),
-#     tf.keras.layers.LSTM(64, activation='relu', return_sequences=True),
-#     tf.keras.layers.LSTM(64, activation='relu'),
-#     tf.keras.layers.Dense(64, activation='relu'),
-#     tf.keras.layers.Dense(forecast_days)
-# ])
-#
-# model.compile(optimizer='adam', loss='mse')
-# model.fit(X_train, y_train, epochs=1, batch_size=32, validation_split=0.2)
+model = tf.keras.Sequential([
+    tf.keras.layers.Input(shape=(past_days, X_train.shape[-1])),
+    tf.keras.layers.Conv1D(32, kernel_size=3, activation='relu', padding='same'),
+    tf.keras.layers.Conv1D(64, kernel_size=3, activation='relu', padding='same'),
+    tf.keras.layers.LSTM(64, activation='relu', return_sequences=True),
+    tf.keras.layers.LSTM(64, activation='relu'),
+    tf.keras.layers.Dense(64, activation='relu'),
+    tf.keras.layers.Dense(forecast_days)
+])
+
+model.compile(optimizer='adam', loss='mse')
+model.fit(X_train, y_train, epochs=1, batch_size=32, validation_split=0.2)
 
 # model_name = f"sm_weather_conv_lstm_{datetime.now().strftime('%Y%m%d_%H%M%S')}.h5"
 # model.save(f"../../Models/{model_name}")
 #
-model = tf.keras.models.load_model("../../Models/sm_weather_conv_lstm_20250521_142831.h5")
+# model = tf.keras.models.load_model("../../Models/sm_weather_conv_lstm_20250521_142831.h5")
 y_preds = model.predict(X_test)
 
 
@@ -188,7 +188,7 @@ with rasterio.open(smap_sm_am_train) as src:
 
 transformer = Transformer.from_crs("EPSG:4326", crs, always_xy=True)
 
-lon, lat = 6.69944, 52.27333
+lon, lat = 6.84306, 52.14639
 
 x, y = transformer.transform(lon, lat)
 
@@ -201,8 +201,8 @@ target_pixel = (row, col)
 matching_indices = [idx for idx, pix in enumerate(pixel_indices_test) if pix == target_pixel]
 
 for day in range(forecast_days):
-    true_series = sm_test_insitu[:, day]
-    # true_series = y_test_inv[matching_indices, day]
+    # true_series = sm_test_insitu[:, day]
+    true_series = y_test_inv[matching_indices, day]
     pred_series = y_preds_inv[matching_indices, day]
     rmse = np.sqrt(mean_squared_error(true_series, pred_series))
     r2 = r2_score(true_series, pred_series)
@@ -211,8 +211,8 @@ for day in range(forecast_days):
 fig, axs = plt.subplots(3, 1, figsize=(14, 10), sharex="all")
 
 for i in range(3):
-    axs[i].plot(sm_test_insitu[:, i], label="Actual", color="black")
-    # axs[i].plot(y_test_inv[matching_indices, i], label="Actual", color="black")
+    # axs[i].plot(sm_test_insitu[:, i], label="Actual", color="black")
+    axs[i].plot(y_test_inv[matching_indices, i], label="Actual", color="black")
     axs[i].plot(y_preds_inv[matching_indices, i], label="Predicted (Mean)", color="green")
     axs[i].set_title(f"SM Prediction - Day {i+1}")
     axs[i].set_ylabel("SM")

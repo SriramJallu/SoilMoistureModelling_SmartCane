@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import random
 from datetime import datetime, timedelta
 from pyproj import Transformer
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn.model_selection import train_test_split, GridSearchCV, cross_val_score
 from sklearn.neural_network import MLPRegressor
 from sklearn.ensemble import RandomForestRegressor
@@ -22,19 +22,6 @@ from rasterio.transform import rowcol, xy
 np.random.seed(123)
 random.seed(123)
 tf.random.set_seed(123)
-
-
-smap_sm_path = "../../Data/SMAP/SMAP_2016_2022_SM_NL_Daily.tif"
-gssm_sm_path = "../../Data/GSSM/GSSM_2016_2020_SM_NL_Daily_1km.tif"
-ndvi_path = "../../Data/VIIRS/VIIRS_NDVI_2016_2021_1km.tif"
-lst_day_path = "../../Data/VIIRS/VIIRS_LST_Day_2017_2021_1km.tif"
-lst_night_path = "../../Data/VIIRS/VIIRS_LST_Night_2017_2021_1km.tif"
-dem_path = "../../Data/StaticVars/DEM_Map_90m.tif"
-slope_path = "../../Data/StaticVars/Slope_Map_90m.tif"
-soil_texture_path = "../../Data/StaticVars/SoilTexture_Map_250m.tif"
-smap_sm_am_path = "../../Data/SMAP/SMAP_2016_2022_SoilMoisture_AM_NL_Daily.tif"
-smap_sm_pm_path = "../../Data/SMAP/SMAP_2016_2022_SoilMoisture_PM_NL_Daily.tif"
-sm_test_path = "../../Data/dataverse_files/1_station_measurements/2_calibrated/ITCSM_05_cd.csv"
 
 
 def read_tif(tif):
@@ -116,68 +103,111 @@ def flatten_inputs(dynamic_vars, static_vars):
     return X.reshape(-1, D+S)
 
 
+# Setting all the paths for tif files
+smap_sm_path = "../../Data/SMAP/SMAP_2016_2022_SM_NL_Daily.tif"
+gssm_sm_path = "../../Data/GSSM/GSSM_2016_2020_SM_NL_Daily_1km.tif"
+ndvi_path = "../../Data/VIIRS/VIIRS_NDVI_4326_2016_2021_1km.tif"
+lst_day_path = "../../Data/VIIRS/VIIRS_LST_Day_4326_2017_2021_1km.tif"
+lst_night_path = "../../Data/VIIRS/VIIRS_LST_Night_4326_2017_2021_1km.tif"
+dem_path = "../../Data/StaticVars/DEM_Map_90m.tif"
+slope_path = "../../Data/StaticVars/Slope_Map_90m.tif"
+soil_texture_path = "../../Data/StaticVars/SoilTexture_Map_250m.tif"
+smap_sm_am_path = "../../Data/SMAP/SMAP_2016_2022_SoilMoisture_AM_NL_Daily.tif"
+smap_sm_pm_path = "../../Data/SMAP/SMAP_2016_2022_SoilMoisture_PM_NL_Daily.tif"
+modis_terra_lst_day_path = "../../Data/MODIS/MODIS_TERRA_LST_Day_2017_2021_1km.tif"
+modis_terra_lst_night_path = "../../Data/MODIS/MODIS_TERRA_LST_Night_2017_2021_1km.tif"
+modis_aqua_lst_day_path = "../../Data/MODIS/MODIS_AQUA_LST_Day_2017_2021_1km.tif"
+modis_aqua_lst_night_path = "../../Data/MODIS/MODIS_AQUA_LST_Night_2017_2021_1km.tif"
+
+sm_test_path = "../../Data/dataverse_files/1_station_measurements/2_calibrated/ITCSM_05_cd.csv"
+
+
+# Load SMAP Data
 smap_sm_am_data, smap_sm_am_meta, smap_sm_am_bands = read_tif(smap_sm_am_path)
 smap_sm_pm_data, smap_sm_pm_meta, smap_sm_pm_bands = read_tif(smap_sm_pm_path)
 
-smap_sm_shape = (smap_sm_am_meta["height"], smap_sm_am_meta["width"])
+smap_sm_shape = (smap_sm_am_meta["height"], smap_sm_am_meta["width"])       # SMAP Shape
 
-smap_sm_combined_data = np.where(
+smap_sm_combined_data = np.where(                                           # Get the average of SMAP AM and PM Products
     np.isnan(smap_sm_am_data) & np.isnan(smap_sm_pm_data),
     np.nan,
     np.nanmean(np.stack([smap_sm_am_data, smap_sm_pm_data]), axis=0)
-)
-smap_sm_filled = fill_missing_data(smap_sm_combined_data)[366:366+1826]
+)[366:366+1461]
 
+# Load dynamic variables
 ndvi_data, ndvi_meta, ndvi_bands = read_tif(ndvi_path)
-ndvi_data = ndvi_data[366:]
-ndvi_bands = ndvi_bands[366:]
-
 lst_day_data, lst_day_meta, lst_day_bands = read_tif(lst_day_path)
 lst_night_data, lst_night_meta, lst_night_bands = read_tif(lst_night_path)
 
-dem_data, dem_meta, dem_band = read_tif(dem_path)
-slope_data, slope_meta, slope_band = read_tif(slope_path)
-soil_texture_data, soil_texture_meta, soil_texture_band = read_tif(soil_texture_path)
+# Filter dynamic variables between 2017 and 2020
+ndvi_data = ndvi_data[366:366+1461]
+lst_day_data = lst_day_data[:1461]
+lst_night_data = lst_night_data[:1461]
 
-
+# Fill missing values in dynamic variables
+smap_sm_filled = fill_missing_data(smap_sm_combined_data)
 ndvi_filled = fill_missing_data(ndvi_data)
 lst_day_filled = fill_missing_data(lst_day_data)
 lst_night_filled = fill_missing_data(lst_night_data)
 
+# Resample dynamic variables from fine to SMAP resolution
 ndvi_resampled = resampling_data(ndvi_filled, ndvi_meta, smap_sm_shape)
 lst_day_resampled = resampling_data(lst_day_filled, lst_day_meta, smap_sm_shape)
 lst_night_resampled = resampling_data(lst_night_filled, lst_night_meta, smap_sm_shape)
 
+print(ndvi_resampled.shape)
+print(lst_day_resampled.shape)
+print(lst_night_resampled.shape)
+
+# Load Static variables
+dem_data, dem_meta, dem_band = read_tif(dem_path)
+slope_data, slope_meta, slope_band = read_tif(slope_path)
+soil_texture_data, soil_texture_meta, soil_texture_band = read_tif(soil_texture_path)
+
+# Resample static variables from fine to SMAP resolution
 dem_resampled = resample_static_data(dem_data, dem_meta, smap_sm_shape)
 slope_resampled = resample_static_data(slope_data, slope_meta, smap_sm_shape)
 soil_texture_resampled = resample_static_data(soil_texture_data, soil_texture_meta, smap_sm_shape, resample=Resampling.nearest)
 
-
+# Stack dynamic and static variables
 dynamic_inputs_stack = np.stack([ndvi_resampled, lst_day_resampled, lst_night_resampled], axis=-1)
 static_inputs_stack = np.stack([dem_resampled, slope_resampled, soil_texture_resampled], axis=-1)
+static_inputs_expanded = np.expand_dims(static_inputs_stack, axis=0).repeat(smap_sm_filled.shape[0], axis=0)
 
-X_data = flatten_inputs(dynamic_inputs_stack, static_inputs_stack)
-y_data = smap_sm_filled.reshape(-1)
+# Flatten and concatenate dynamic & static variables to shape (T*H*W, D+S)
+# X_data = flatten_inputs(dynamic_inputs_stack, static_inputs_stack)
+X_data = np.concatenate([dynamic_inputs_stack, static_inputs_expanded], axis=-1)
+print("New X_data shape", X_data.shape)
 
-combined_mask = (~np.isnan(y_data)) & (~np.isnan(X_data).any(axis=1))
+# Flatten target variable to shape (T*H*W,)
+y_data = smap_sm_filled.reshape(smap_sm_filled.shape[0], smap_sm_filled.shape[1], smap_sm_filled.shape[2], 1)
+print("New y_data shape", y_data.shape)
 
+# Create a mask to non-NAN values in X and y data
+y_mask = ~np.isnan(y_data).squeeze(-1)
+x_mask = ~np.isnan(X_data).any(axis=-1)
+
+combined_mask = y_mask & x_mask
+
+# Filter out NAN values
 X_data = X_data[combined_mask]
 y_data = y_data[combined_mask]
 
 print(X_data.shape)
 print(y_data.shape)
 
+# Scale input features
 scaler = StandardScaler()
 X_scaled = scaler.fit_transform(X_data)
 
 model = tf.keras.models.Sequential([
     tf.keras.layers.Dense(128, activation='relu', input_shape=(X_scaled.shape[1],)),
     tf.keras.layers.Dense(128, activation='relu'),
-    tf.keras.layers.Dense(1, activation='sigmoid')
+    tf.keras.layers.Dense(1, activation='relu')
 ])
 
 model.compile(optimizer='adam', loss='mse', metrics=['mae'])
-model.fit(X_scaled, y_data, epochs=1, batch_size=32, validation_split=0.2)
+model.fit(X_scaled, y_data, epochs=20, batch_size=32, validation_split=0.2)
 
 target_shape_1km = (lst_day_meta["height"], lst_day_meta["width"])
 
@@ -197,20 +227,80 @@ slope_1km = resample_static_data(slope_data, slope_meta, target_shape_1km)
 soil_texture_1km = resample_static_data(soil_texture_data, soil_texture_meta, target_shape_1km, resample=Resampling.nearest)
 
 static_inputs_1km = np.stack([dem_1km, slope_1km, soil_texture_1km], axis=-1)
+static_inputs_1km_expanded = np.expand_dims(static_inputs_1km, axis=0).repeat(ndvi_1km_filled.shape[0], axis=0)
 
-X_1km = flatten_inputs(dynamic_inputs_1km, static_inputs_1km)
+
+# X_1km = flatten_inputs(dynamic_inputs_1km, static_inputs_1km)
+X_1km = np.concatenate([dynamic_inputs_1km, static_inputs_1km_expanded], axis=-1)
 
 
-valid_mask = ~np.isnan(X_1km).any(axis=1)
+valid_mask = ~np.isnan(X_1km).any(axis=-1)
 X_1km_valid = X_1km[valid_mask]
 
 X_1km_scaled = scaler.transform(X_1km_valid)
 y_pred_1km = model.predict(X_1km_scaled)
 
-pred_grid = np.full(X_1km.shape[0], np.nan)
+pred_grid = np.full(X_1km.shape[:-1], np.nan)
 pred_grid[valid_mask] = y_pred_1km.flatten()
-pred_map = pred_grid.reshape((1826, lst_day_meta["height"], lst_day_meta["width"]))
+pred_map = pred_grid.reshape((1461, lst_day_meta["height"], lst_day_meta["width"]))
+pred_map = pred_map[1095:1461]
 
+
+gssm_data, gssm_meta, gssm_bands = read_tif(gssm_sm_path)
+gssm_data = gssm_data[1461-9:1461-9+366]
+
+
+lat, lon = 52.14639, 6.84306
+
+transform = gssm_meta["transform"]
+crs = gssm_meta["crs"]
+transformer = Transformer.from_crs("EPSG:4326", crs, always_xy=True)
+
+
+x, y = transformer.transform(lon, lat)
+row, col = rowcol(transform, x, y)
+print("Pixel location:", row, col)
+
+gssm_series = gssm_data[:, row, col]
+pred_series = pred_map[:, row, col]
+
+
+# pred_flat = pred_map.reshape(1461, -1)
+# gssm_flat = gssm_data.reshape(1461, -1)
+
+valid_mask = ~np.isnan(pred_series) & ~np.isnan(gssm_series)
+pred_valid = pred_series[valid_mask]
+gssm_valid = gssm_series[valid_mask]
+
+rmse = mean_squared_error(gssm_valid, pred_valid, squared=False)
+r2 = r2_score(gssm_valid, pred_valid)
+
+print(f"RMSE (2020): {rmse:.4f}")
+print(f"R² (2020): {r2:.4f}")
+
+
+headers = pd.read_csv(sm_test_path, skiprows=18, nrows=0).columns.tolist()
+sm_test = pd.read_csv(sm_test_path, skiprows=20, parse_dates=["Date time"], names=headers)
+
+sm_test["Date time"] = pd.to_datetime(sm_test["Date time"], format='%d-%m-%Y %H:%M', errors='coerce')
+sm_test = sm_test[sm_test["Date time"] >= '2020-01-01']
+sm_test = sm_test.set_index("Date time")
+sm_test = sm_test.resample("D").mean()
+
+date_range_2020 = pd.date_range(start="2020-01-01", periods=366, freq="D")
+pred_2020_series = pd.Series(pred_series, index=date_range_2020)
+
+combined_df = pd.DataFrame({
+    "pred": pred_2020_series,
+    "insitu": sm_test[" 5 cm SM"]
+})
+
+combined_df = combined_df.dropna()
+rmse_insitu = mean_squared_error(combined_df["insitu"], combined_df["pred"], squared=False)
+r2_insitu = r2_score(combined_df["insitu"], combined_df["pred"])
+
+print(f"RMSE vs in-situ (2020): {rmse_insitu:.4f}")
+print(f"R² vs in-situ (2020): {r2_insitu:.4f}")
 
 # output_path = "../../Data/GSSM/GSSM_Predicted_SoilMoisture_2017_2021_1km.tif"
 # T, H, W = pred_map.shape

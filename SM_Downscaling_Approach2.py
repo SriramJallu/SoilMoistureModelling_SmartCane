@@ -91,19 +91,6 @@ def flatten_inputs(dynamic_vars, static_vars):
     return np.concatenate([dynamic_flat, static_flat], axis=1)
 
 
-def plot_variable_stack(stack, title, days=[25, 45, 60]):
-    fig, axs = plt.subplots(1, len(days), figsize=(15, 5))
-    for i, day in enumerate(days):
-        axs[i].imshow(stack[day], cmap='viridis',
-                      vmin=np.nanpercentile(stack, 5),
-                      vmax=np.nanpercentile(stack, 95))
-        axs[i].set_title(f"{title} - Day {day}")
-        axs[i].axis('off')
-
-    plt.tight_layout()
-    plt.suptitle(title, y=1.05)
-    plt.show()
-
 smap_sm_am_path = "../../Data/SMAP/SMAP_2016_2022_SoilMoisture_AM_NL_Daily.tif"
 smap_sm_pm_path = "../../Data/SMAP/SMAP_2016_2022_SoilMoisture_PM_NL_Daily.tif"
 gssm_sm_path = "../../Data/GSSM/GSSM_2017_2020_SM_NL_Daily_1km.tif"
@@ -200,9 +187,9 @@ model = tf.keras.models.Sequential([
 ])
 
 model.compile(optimizer='adam', loss='mse', metrics=['mae'])
-model.fit(X_train_scaled, y_train_scaled, epochs=1, batch_size=32, validation_split=0.2)
+model.fit(X_train_scaled, y_train_scaled, epochs=2, batch_size=32, validation_split=0.2)
 
-model_name = f"sm_downscaling_lstm_{datetime.now().strftime('%Y%m%d_%H%M%S')}.h5"
+model_name = f"sm_downscaling_{datetime.now().strftime('%Y%m%d_%H%M%S')}.h5"
 model.save(f"../../Models/{model_name}")
 
 # model = tf.keras.models.load_model("../../Models/sm_downscaling_lstm_20250530_085224.h5")
@@ -241,6 +228,47 @@ print(f"R²: {r2:.4f}")
 print(f"RMSE: {rmse:.4f}")
 
 
+# rf_model = RandomForestRegressor(
+#     n_estimators=100,
+#     max_depth=None,
+#     random_state=42,
+#     n_jobs=-1
+# )
+#
+# rf_model.fit(X_train_scaled, y_train_scaled.ravel())
+#
+#
+# X_test_scaled = scaler.transform(X_test_all)
+#
+#
+# mask_test = (~np.isnan(X_test_scaled).any(axis=1) & (~np.isnan(y_test_all)))
+# X_test_clean = X_test_scaled[mask_test]
+# y_test_clean = y_test_all[mask_test]
+#
+#
+# y_pred_scaled = rf_model.predict(X_test_clean)
+#
+#
+# y_pred = y_scaler.inverse_transform(y_pred_scaled.reshape(-1, 1))
+#
+# rmse = np.sqrt(mean_squared_error(y_test_clean, y_pred))
+# r2 = r2_score(y_test_clean, y_pred)
+#
+# print(f"Test RMSE: {rmse:.4f}")
+# print(f"Test R²: {r2:.4f}")
+
+# def plot_variable_stack(stack, title, days=[25, 45, 60]):
+#     fig, axs = plt.subplots(1, len(days), figsize=(15, 5))
+#     for i, day in enumerate(days):
+#         axs[i].imshow(stack[day], cmap='viridis',
+#                       vmin=np.nanpercentile(stack, 5),
+#                       vmax=np.nanpercentile(stack, 95))
+#         axs[i].set_title(f"{title} - Day {day}")
+#         axs[i].axis('off')
+#
+#     plt.tight_layout()
+#     plt.suptitle(title, y=1.05)
+#     plt.show()
 
 # plot_variable_stack(smap_sm_am, "SMAP am (Train)")
 # plot_variable_stack(smap, "SMAP (Train)")
