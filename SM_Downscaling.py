@@ -6,7 +6,7 @@ import random
 from datetime import datetime, timedelta
 from pyproj import Transformer
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
-from sklearn.model_selection import train_test_split, GridSearchCV, cross_val_score
+from sklearn.model_selection import train_test_split, GridSearchCV, cross_val_score, RandomizedSearchCV
 from sklearn.neural_network import MLPRegressor
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.dummy import DummyRegressor
@@ -18,6 +18,7 @@ from rasterio.warp import reproject
 from scipy.signal import savgol_filter
 from pyproj import Transformer
 from rasterio.transform import rowcol, xy
+import xgboost as xgb
 
 np.random.seed(123)
 random.seed(123)
@@ -39,7 +40,10 @@ def fill_missing_data(data, max_window=28):
 
     for idx in range(data_reshaped.shape[1]):
         series = pd.Series(data_reshaped[:, idx])
-        series_filled = series.fillna(method="ffill", limit=max_window)
+        # series_filled = series.fillna(method="ffill", limit=max_window)
+        # series_filled = series.interpolate(limit=max_window, limit_direction="both")
+        series_filled = pd.Series(
+            savgol_filter(series.interpolate().fillna(method='bfill'), window_length=7, polyorder=2))
         filled[:, idx] = series_filled.to_numpy()
 
     return filled.reshape(T, W, H)
@@ -119,7 +123,7 @@ modis_terra_lst_night_path = "../../Data/MODIS/MODIS_TERRA_LST_Night_2017_2021_1
 modis_aqua_lst_day_path = "../../Data/MODIS/MODIS_AQUA_LST_Day_2017_2021_1km.tif"
 modis_aqua_lst_night_path = "../../Data/MODIS/MODIS_AQUA_LST_Night_2017_2021_1km.tif"
 
-sm_test_path = "../../Data/dataverse_files/1_station_measurements/2_calibrated/ITCSM_05_cd.csv"
+sm_test_path = "../../Data/dataverse_files/1_station_measurements/2_calibrated/ITCSM_09_cd.csv"
 
 
 # Load SMAP Data
@@ -133,6 +137,10 @@ smap_sm_combined_data = np.where(                                           # Ge
     np.nan,
     np.nanmean(np.stack([smap_sm_am_data, smap_sm_pm_data]), axis=0)
 )[366:366+1461]
+
+# smap_sm_combined_data, smap_sm_combined_meta, smap_sm_combined_bands = read_tif(smap_sm_path)
+# smap_sm_shape = (smap_sm_combined_meta["height"], smap_sm_combined_meta["width"])
+# smap_sm_combined_data = smap_sm_combined_data[366:366+1461]
 
 # Load dynamic variables
 ndvi_data, ndvi_meta, ndvi_bands = read_tif(ndvi_path)
@@ -200,14 +208,49 @@ print(y_data.shape)
 scaler = StandardScaler()
 X_scaled = scaler.fit_transform(X_data)
 
-model = tf.keras.models.Sequential([
-    tf.keras.layers.Dense(128, activation='relu', input_shape=(X_scaled.shape[1],)),
-    tf.keras.layers.Dense(128, activation='relu'),
-    tf.keras.layers.Dense(1, activation='relu')
-])
+# model = tf.keras.models.Sequential([
+#     tf.keras.layers.Dense(128, activation='relu', input_shape=(X_scaled.shape[1],)),
+#     tf.keras.layers.Dense(128, activation='relu'),
+#     tf.keras.layers.Dense(1, activation='relu')
+# ])
+#
+# model.compile(optimizer='adam', loss='mse', metrics=['mae'])
+# model.fit(X_scaled, y_data, epochs=200, batch_size=32, validation_split=0.2)
 
-model.compile(optimizer='adam', loss='mse', metrics=['mae'])
-model.fit(X_scaled, y_data, epochs=20, batch_size=32, validation_split=0.2)
+model = xgb.XGBRegressor(
+    n_estimators=100,
+    max_depth=3,
+    learning_rate=0.1,
+    subsample=0.8,
+    colsample_bytree=1,
+    random_state=123,
+    n_jobs=-1
+)
+model.fit(X_scaled, y_data.ravel())
+
+# xgb_model = xgb.XGBRegressor(objective='reg:squarederror', random_state=123, n_jobs=-1)
+#
+# params = {
+#     "n_estimators": [100, 150, 200],
+#     "learning_rate": [0.1, 0.01, 0.001],
+#     "max_depth": [3, 5, 7],
+#     "subsample": [0.4, 0.6, 0.8],
+#     'colsample_bytree': [0.6, 0.8, 1.0]
+# }
+#
+# grid_search = GridSearchCV(
+#     estimator=xgb_model,
+#     param_grid=params,
+#     scoring='neg_mean_squared_error',
+#     cv=3,
+#     n_jobs=-1,
+#     verbose=1
+# )
+#
+# grid_search.fit(X_scaled, y_data.ravel())
+# model = grid_search.best_estimator_
+# print("Best parameters found: ", grid_search.best_params_)
+# print("Best RMSE (neg): ", grid_search.best_score_)
 
 target_shape_1km = (lst_day_meta["height"], lst_day_meta["width"])
 
@@ -261,22 +304,25 @@ x, y = transformer.transform(lon, lat)
 row, col = rowcol(transform, x, y)
 print("Pixel location:", row, col)
 
-gssm_series = gssm_data[:, row, col]
+# gssm_series = gssm_data[:, row, col]
 pred_series = pred_map[:, row, col]
 
 
 # pred_flat = pred_map.reshape(1461, -1)
 # gssm_flat = gssm_data.reshape(1461, -1)
 
-valid_mask = ~np.isnan(pred_series) & ~np.isnan(gssm_series)
+# valid_mask = ~np.isnan(pred_series) & ~np.isnan(gssm_series)
+valid_mask = ~np.isnan(pred_series)
 pred_valid = pred_series[valid_mask]
-gssm_valid = gssm_series[valid_mask]
 
-rmse = mean_squared_error(gssm_valid, pred_valid, squared=False)
-r2 = r2_score(gssm_valid, pred_valid)
 
-print(f"RMSE (2020): {rmse:.4f}")
-print(f"R² (2020): {r2:.4f}")
+# gssm_valid = gssm_series[valid_mask]
+#
+# rmse = mean_squared_error(gssm_valid, pred_valid, squared=False)
+# r2 = r2_score(gssm_valid, pred_valid)
+#
+# print(f"RMSE (2020): {rmse:.4f}")
+# print(f"R² (2020): {r2:.4f}")
 
 
 headers = pd.read_csv(sm_test_path, skiprows=18, nrows=0).columns.tolist()
@@ -284,6 +330,7 @@ sm_test = pd.read_csv(sm_test_path, skiprows=20, parse_dates=["Date time"], name
 
 sm_test["Date time"] = pd.to_datetime(sm_test["Date time"], format='%d-%m-%Y %H:%M', errors='coerce')
 sm_test = sm_test[sm_test["Date time"] >= '2020-01-01']
+# sm_test = sm_test[sm_test[" 10 cm SM"] >= 0]
 sm_test = sm_test.set_index("Date time")
 sm_test = sm_test.resample("D").mean()
 
@@ -302,19 +349,30 @@ r2_insitu = r2_score(combined_df["insitu"], combined_df["pred"])
 print(f"RMSE vs in-situ (2020): {rmse_insitu:.4f}")
 print(f"R² vs in-situ (2020): {r2_insitu:.4f}")
 
-# output_path = "../../Data/GSSM/GSSM_Predicted_SoilMoisture_2017_2021_1km.tif"
-# T, H, W = pred_map.shape
-#
-# new_meta = lst_day_meta.copy()
-# new_meta.update({
-#     "count": T,
-#     "dtype": "float32"
-# })
-#
-#
-# with rasterio.open(output_path, "w", **new_meta) as dst:
-#     for i in range(T):
-#         dst.write(pred_map[i, :, :].astype("float32"), i + 1)
+plt.figure(figsize=(12, 5))
+plt.plot(combined_df.index, combined_df["insitu"], label="In-situ SM", linewidth=2)
+plt.plot(combined_df.index, combined_df["pred"], label="Predicted SM", linewidth=2)
+plt.xlabel("Date", fontsize=12)
+plt.ylabel("Soil Moisture", fontsize=12)
+plt.title("Soil Moisture Predictions vs In-situ Measurements (2020)", fontsize=14)
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
+plt.show()
+
+output_path = "../../Data/SMAP/SMAP_downscaled_appraoch1_smap_test.tif"
+T, H, W = pred_map.shape
+
+new_meta = lst_day_meta.copy()
+new_meta.update({
+    "count": T,
+    "dtype": "float32"
+})
+
+
+with rasterio.open(output_path, "w", **new_meta) as dst:
+    for i in range(T):
+        dst.write(pred_map[i, :, :].astype("float32"), i + 1)
 
 print("Done")
 ########################################################################################################################
