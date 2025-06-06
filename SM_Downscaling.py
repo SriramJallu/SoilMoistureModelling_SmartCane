@@ -96,34 +96,44 @@ def resample_static_data(static_data, static_meta, smap_shape, resample=Resampli
     return resampled
 
 
-def flatten_inputs(dynamic_vars, static_vars):
-    T, H, W, D = dynamic_vars.shape
-    S = static_vars.shape[-1]
+def get_valid_dates(bands, suffix):
+    return set(
+        b.replace(f"_{suffix}", "") for b in bands if b.endswith(f"_{suffix}")
+    )
 
-    X_dynamic = dynamic_vars.reshape(T, H*W, D)
-    X_static = static_vars.reshape(1, H*W, S).repeat(T, axis=0)
 
-    X = np.concatenate([X_dynamic, X_static], axis=-1)
-    return X.reshape(-1, D+S)
+def filter_by_dates(data, bands, suffix, common_dates):
+    filtered_indices = []
+    filtered_band_names = []
+
+    for i, b in enumerate(bands):
+        if b.endswith(f"_{suffix}"):
+            date = b.replace(f"_{suffix}", "")
+            if date in common_dates:
+                filtered_indices.append(i)
+                filtered_band_names.append(b)
+
+    return data[filtered_indices], filtered_band_names
 
 
 # Setting all the paths for tif files
 smap_sm_path = "../../Data/SMAP/SMAP_2016_2022_SM_NL_Daily.tif"
 gssm_sm_path = "../../Data/GSSM/GSSM_2016_2020_SM_NL_Daily_1km.tif"
-ndvi_path = "../../Data/VIIRS/VIIRS_NDVI_4326_2016_2021_1km.tif"
-lst_day_path = "../../Data/VIIRS/VIIRS_LST_Day_4326_2017_2021_1km.tif"
-lst_night_path = "../../Data/VIIRS/VIIRS_LST_Night_4326_2017_2021_1km.tif"
+ndvi_path = "../../Data/VIIRS/VIIRS_NDVI_4326_2015_2020_1km.tif"
+lst_day_path = "../../Data/VIIRS/VIIRS_LST_Day_4326_2015_2020_1km.tif"
+lst_night_path = "../../Data/VIIRS/VIIRS_LST_Night_4326_2015_2020_1km.tif"
 dem_path = "../../Data/StaticVars/DEM_Map_90m.tif"
 slope_path = "../../Data/StaticVars/Slope_Map_90m.tif"
 soil_texture_path = "../../Data/StaticVars/SoilTexture_Map_250m.tif"
-smap_sm_am_path = "../../Data/SMAP/SMAP_2016_2022_SoilMoisture_AM_NL_Daily.tif"
-smap_sm_pm_path = "../../Data/SMAP/SMAP_2016_2022_SoilMoisture_PM_NL_Daily.tif"
+smap_sm_am_path = "../../Data/SMAP/SMAP_L3_2015_2020_SoilMoisture_AM_NL_Daily.tif"
+smap_sm_pm_path = "../../Data/SMAP/SMAP_L3_2015_2020_SoilMoisture_PM_NL_Daily.tif"
 modis_terra_lst_day_path = "../../Data/MODIS/MODIS_TERRA_LST_Day_2017_2021_1km.tif"
 modis_terra_lst_night_path = "../../Data/MODIS/MODIS_TERRA_LST_Night_2017_2021_1km.tif"
 modis_aqua_lst_day_path = "../../Data/MODIS/MODIS_AQUA_LST_Day_2017_2021_1km.tif"
 modis_aqua_lst_night_path = "../../Data/MODIS/MODIS_AQUA_LST_Night_2017_2021_1km.tif"
 
-sm_test_path = "../../Data/dataverse_files/1_station_measurements/2_calibrated/ITCSM_09_cd.csv"
+sm_test_path = "../../Data/dataverse_files/1_station_measurements/2_calibrated/ITCSM_10_cd.csv"
+lat, lon = 52.2, 6.65944
 
 
 # Load SMAP Data
@@ -132,25 +142,35 @@ smap_sm_pm_data, smap_sm_pm_meta, smap_sm_pm_bands = read_tif(smap_sm_pm_path)
 
 smap_sm_shape = (smap_sm_am_meta["height"], smap_sm_am_meta["width"])       # SMAP Shape
 
-smap_sm_combined_data = np.where(                                           # Get the average of SMAP AM and PM Products
-    np.isnan(smap_sm_am_data) & np.isnan(smap_sm_pm_data),
-    np.nan,
-    np.nanmean(np.stack([smap_sm_am_data, smap_sm_pm_data]), axis=0)
-)[366:366+1461]
-
-# smap_sm_combined_data, smap_sm_combined_meta, smap_sm_combined_bands = read_tif(smap_sm_path)
-# smap_sm_shape = (smap_sm_combined_meta["height"], smap_sm_combined_meta["width"])
-# smap_sm_combined_data = smap_sm_combined_data[366:366+1461]
+smap_am_dates = get_valid_dates(smap_sm_am_bands, "AM")
+smap_pm_dates = get_valid_dates(smap_sm_pm_bands, "PM")
 
 # Load dynamic variables
 ndvi_data, ndvi_meta, ndvi_bands = read_tif(ndvi_path)
 lst_day_data, lst_day_meta, lst_day_bands = read_tif(lst_day_path)
 lst_night_data, lst_night_meta, lst_night_bands = read_tif(lst_night_path)
 
-# Filter dynamic variables between 2017 and 2020
-ndvi_data = ndvi_data[366:366+1461]
-lst_day_data = lst_day_data[:1461]
-lst_night_data = lst_night_data[:1461]
+# Get the dates of each dynamic variable
+ndvi_dates = get_valid_dates(ndvi_bands, "NDVI")
+lst_day_dates = get_valid_dates(lst_day_bands, "LST_Day")
+lst_night_dates = get_valid_dates(lst_night_bands, "LST_Night")
+
+# Filter to keep only the common dates between all the dynamic variables
+common_dates = sorted(ndvi_dates & lst_day_dates & lst_night_dates & smap_am_dates & smap_pm_dates)
+
+smap_am_data, smap_am_bands_filt = filter_by_dates(smap_sm_am_data, smap_sm_am_bands, "AM", common_dates)
+smap_pm_data, smap_pm_bands_filt = filter_by_dates(smap_sm_pm_data, smap_sm_pm_bands, "PM", common_dates)
+ndvi_data, ndvi_bands_filt = filter_by_dates(ndvi_data, ndvi_bands, "NDVI", common_dates)
+lst_day_data, lst_day_bands_filt = filter_by_dates(lst_day_data, lst_day_bands, "LST_Day", common_dates)
+lst_night_data, lst_night_bands_filt = filter_by_dates(lst_night_data, lst_night_bands, "LST_Night", common_dates)
+
+
+# Get the average of AM and PM SMAP products
+smap_sm_combined_data = np.where(                                           # Get the average of SMAP AM and PM Products
+    np.isnan(smap_am_data) & np.isnan(smap_pm_data),
+    np.nan,
+    np.nanmean(np.stack([smap_am_data, smap_pm_data]), axis=0)
+)
 
 # Fill missing values in dynamic variables
 smap_sm_filled = fill_missing_data(smap_sm_combined_data)
@@ -217,51 +237,46 @@ X_scaled = scaler.fit_transform(X_data)
 # model.compile(optimizer='adam', loss='mse', metrics=['mae'])
 # model.fit(X_scaled, y_data, epochs=200, batch_size=32, validation_split=0.2)
 
-model = xgb.XGBRegressor(
-    n_estimators=100,
-    max_depth=3,
-    learning_rate=0.1,
-    subsample=0.8,
-    colsample_bytree=1,
-    random_state=123,
-    n_jobs=-1
-)
-model.fit(X_scaled, y_data.ravel())
-
-# xgb_model = xgb.XGBRegressor(objective='reg:squarederror', random_state=123, n_jobs=-1)
-#
-# params = {
-#     "n_estimators": [100, 150, 200],
-#     "learning_rate": [0.1, 0.01, 0.001],
-#     "max_depth": [3, 5, 7],
-#     "subsample": [0.4, 0.6, 0.8],
-#     'colsample_bytree': [0.6, 0.8, 1.0]
-# }
-#
-# grid_search = GridSearchCV(
-#     estimator=xgb_model,
-#     param_grid=params,
-#     scoring='neg_mean_squared_error',
-#     cv=3,
-#     n_jobs=-1,
-#     verbose=1
+# model = xgb.XGBRegressor(
+#     n_estimators=100,
+#     max_depth=3,
+#     learning_rate=0.1,
+#     subsample=0.6,
+#     colsample_bytree=1,
+#     random_state=123,
+#     n_jobs=-1
 # )
-#
-# grid_search.fit(X_scaled, y_data.ravel())
-# model = grid_search.best_estimator_
-# print("Best parameters found: ", grid_search.best_params_)
-# print("Best RMSE (neg): ", grid_search.best_score_)
+# model.fit(X_scaled, y_data.ravel())
+
+xgb_model = xgb.XGBRegressor(objective='reg:squarederror', random_state=123, n_jobs=-1)
+
+params = {
+    "n_estimators": [100, 150, 200],
+    "learning_rate": [0.1, 0.01, 0.001],
+    "max_depth": [3, 5, 7],
+    "subsample": [0.4, 0.6, 0.8],
+    'colsample_bytree': [0.6, 0.8, 1.0]
+}
+
+grid_search = GridSearchCV(
+    estimator=xgb_model,
+    param_grid=params,
+    scoring='neg_mean_squared_error',
+    cv=3,
+    n_jobs=-1,
+    verbose=1
+)
+
+grid_search.fit(X_scaled, y_data.ravel())
+model = grid_search.best_estimator_
+print("Best parameters found: ", grid_search.best_params_)
+print("Best RMSE (neg): ", grid_search.best_score_)
 
 target_shape_1km = (lst_day_meta["height"], lst_day_meta["width"])
 
-ndvi_1km = ndvi_filled
-lst_day_1km = lst_day_filled
-lst_night_1km = lst_night_filled
-
-ndvi_1km_filled = fill_missing_data(ndvi_1km)
-lst_day_1km_filled = fill_missing_data(lst_day_1km)
-lst_night_1km_filled = fill_missing_data(lst_night_1km)
-
+ndvi_1km_filled = fill_missing_data(ndvi_filled)
+lst_day_1km_filled = fill_missing_data(lst_day_filled)
+lst_night_1km_filled = fill_missing_data(lst_night_filled)
 
 dynamic_inputs_1km = np.stack([ndvi_1km_filled, lst_day_1km_filled, lst_night_1km_filled], axis=-1)
 
@@ -285,15 +300,13 @@ y_pred_1km = model.predict(X_1km_scaled)
 
 pred_grid = np.full(X_1km.shape[:-1], np.nan)
 pred_grid[valid_mask] = y_pred_1km.flatten()
-pred_map = pred_grid.reshape((1461, lst_day_meta["height"], lst_day_meta["width"]))
-pred_map = pred_map[1095:1461]
+pred_map = pred_grid.reshape((smap_sm_filled.shape[0], lst_day_meta["height"], lst_day_meta["width"]))
+# pred_map = pred_map[1095:1461]
 
 
 gssm_data, gssm_meta, gssm_bands = read_tif(gssm_sm_path)
-gssm_data = gssm_data[1461-9:1461-9+366]
+# gssm_data = gssm_data[1461-9:1461-9+366]
 
-
-lat, lon = 52.14639, 6.84306
 
 transform = gssm_meta["transform"]
 crs = gssm_meta["crs"]
@@ -324,30 +337,33 @@ pred_valid = pred_series[valid_mask]
 # print(f"RMSE (2020): {rmse:.4f}")
 # print(f"R² (2020): {r2:.4f}")
 
+common_dates_dt = pd.to_datetime(common_dates, format="%Y_%m_%d").normalize()
+# date_range_2020 = pd.date_range(start="2020-01-01", periods=366, freq="D")
+pred_series = pd.Series(pred_series, index=common_dates_dt)
 
 headers = pd.read_csv(sm_test_path, skiprows=18, nrows=0).columns.tolist()
 sm_test = pd.read_csv(sm_test_path, skiprows=20, parse_dates=["Date time"], names=headers)
 
 sm_test["Date time"] = pd.to_datetime(sm_test["Date time"], format='%d-%m-%Y %H:%M', errors='coerce')
-sm_test = sm_test[sm_test["Date time"] >= '2020-01-01']
-# sm_test = sm_test[sm_test[" 10 cm SM"] >= 0]
+sm_test = sm_test[sm_test["Date time"] >= '2015-04-01']
+sm_test = sm_test[sm_test[" 5 cm SM"] >= 0]
 sm_test = sm_test.set_index("Date time")
+sm_test.index = sm_test.index.normalize()
 sm_test = sm_test.resample("D").mean()
-
-date_range_2020 = pd.date_range(start="2020-01-01", periods=366, freq="D")
-pred_2020_series = pd.Series(pred_series, index=date_range_2020)
+sm_test_common = sm_test.loc[common_dates_dt]
 
 combined_df = pd.DataFrame({
-    "pred": pred_2020_series,
-    "insitu": sm_test[" 5 cm SM"]
+    "pred": pred_series,
+    "insitu": sm_test_common[" 5 cm SM"]
 })
 
+combined_df = combined_df[combined_df.index >= '2020-01-01']
 combined_df = combined_df.dropna()
 rmse_insitu = mean_squared_error(combined_df["insitu"], combined_df["pred"], squared=False)
 r2_insitu = r2_score(combined_df["insitu"], combined_df["pred"])
 
-print(f"RMSE vs in-situ (2020): {rmse_insitu:.4f}")
-print(f"R² vs in-situ (2020): {r2_insitu:.4f}")
+print(f"RMSE vs in-situ: {rmse_insitu:.4f}")
+print(f"R² vs in-situ: {r2_insitu:.4f}")
 
 plt.figure(figsize=(12, 5))
 plt.plot(combined_df.index, combined_df["insitu"], label="In-situ SM", linewidth=2)

@@ -16,13 +16,13 @@ def read_tif(tif):
 
 
 gssm_sm_path = "../../Data/GSSM/GSSM_2016_2020_SM_NL_Daily_1km.tif"
-sm_test_path = "../../Data/dataverse_files/1_station_measurements/2_calibrated/ITCSM_18_cd.csv"
+sm_test_path = "../../Data/dataverse_files/1_station_measurements/2_calibrated/ITCSM_02_cd.csv"
 
 gssm_data, gssm_meta, gssm_bands = read_tif(gssm_sm_path)
-gssm_data = gssm_data[1461-9:1461-9+366]
+gssm_data = gssm_data[366-9:]
 
 
-lat, lon = 52.40528, 6.37991
+lat, lon = 52.39, 6.85722
 
 transform = gssm_meta["transform"]
 crs = gssm_meta["crs"]
@@ -36,20 +36,21 @@ print("Pixel location:", row, col)
 gssm_series = gssm_data[:, row, col]
 
 
-headers = pd.read_csv(sm_test_path, skiprows=21, nrows=0).columns.tolist()
-sm_test = pd.read_csv(sm_test_path, skiprows=23, parse_dates=["Date time"], names=headers)
+headers = pd.read_csv(sm_test_path, skiprows=18, nrows=0).columns.tolist()
+sm_test = pd.read_csv(sm_test_path, skiprows=20, parse_dates=["Date time"], names=headers)
 
 sm_test["Date time"] = pd.to_datetime(sm_test["Date time"], format='%d-%m-%Y %H:%M', errors='coerce')
-sm_test = sm_test[sm_test["Date time"] >= '2020-01-01']
-# sm_test = sm_test[sm_test[" 10 cm SM"] >= 0]
+sm_test = sm_test[sm_test["Date time"] >= '2017-01-01']
+sm_test = sm_test[sm_test[" 5 cm SM"] >= 0]
 sm_test = sm_test.set_index("Date time")
 sm_test = sm_test.resample("D").mean()
 
-date_range_2020 = pd.date_range(start="2020-01-01", periods=366, freq="D")
+date_range_2020 = pd.date_range(start="2017-01-01", periods=1461, freq="D")
 gssm_2020_series = pd.Series(gssm_series, index=date_range_2020)
+gssm_filtered = gssm_2020_series.reindex(sm_test.index)
 
 combined_df = pd.DataFrame({
-    "GSSM": gssm_2020_series,
+    "GSSM": gssm_filtered,
     "insitu": sm_test[" 5 cm SM"]
 })
 
