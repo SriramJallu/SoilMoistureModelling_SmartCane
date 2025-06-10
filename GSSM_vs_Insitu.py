@@ -16,13 +16,13 @@ def read_tif(tif):
 
 
 gssm_sm_path = "../../Data/GSSM/GSSM_2016_2020_SM_NL_Daily_1km.tif"
-sm_test_path = "../../Data/dataverse_files/1_station_measurements/2_calibrated/ITCSM_02_cd.csv"
+sm_test_path = "../../Data/dataverse_files/1_station_measurements/2_calibrated/ITCSM_20_cd.csv"
 
 gssm_data, gssm_meta, gssm_bands = read_tif(gssm_sm_path)
 gssm_data = gssm_data[366-9:]
 
 
-lat, lon = 52.39, 6.85722
+lat, lon = 52.31889, 6.44861
 
 transform = gssm_meta["transform"]
 crs = gssm_meta["crs"]
@@ -36,8 +36,8 @@ print("Pixel location:", row, col)
 gssm_series = gssm_data[:, row, col]
 
 
-headers = pd.read_csv(sm_test_path, skiprows=18, nrows=0).columns.tolist()
-sm_test = pd.read_csv(sm_test_path, skiprows=20, parse_dates=["Date time"], names=headers)
+headers = pd.read_csv(sm_test_path, skiprows=21, nrows=0).columns.tolist()
+sm_test = pd.read_csv(sm_test_path, skiprows=23, parse_dates=["Date time"], names=headers)
 
 sm_test["Date time"] = pd.to_datetime(sm_test["Date time"], format='%d-%m-%Y %H:%M', errors='coerce')
 sm_test = sm_test[sm_test["Date time"] >= '2017-01-01']
