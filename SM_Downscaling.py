@@ -130,6 +130,8 @@ modis_terra_lst_night_path = "../../Data/MODIS/MODIS_TERRA_LST_Night_2015_2020_1
 modis_aqua_lst_day_path = "../../Data/MODIS/MODIS_AQUA_LST_Day_2017_2021_1km.tif"
 modis_aqua_lst_night_path = "../../Data/MODIS/MODIS_AQUA_LST_Night_2017_2021_1km.tif"
 modis_et_path = "../../Data/MODIS/MODIS_ET_8Day_2015_2020_500m.tif"
+modis_daily_et_path = "../../Data/MODIS/MODIS_ET_Daily_2015_2020.tif"
+precip_era5_path = "../../Data/ERA5_NL/ERA5_2015_2020_Precip_NL_Daily.tif"
 
 # Path for insitu data and it corresponding lat, lon
 sm_test_path = "../../Data/dataverse_files/1_station_measurements/2_calibrated/ITCSM_10_cd.csv"
@@ -149,23 +151,28 @@ smap_pm_dates = get_valid_dates(smap_sm_pm_bands, "PM")
 ndvi_data, ndvi_meta, ndvi_bands = read_tif(ndvi_path)
 lst_day_data, lst_day_meta, lst_day_bands = read_tif(modis_terra_lst_day_path)
 lst_night_data, lst_night_meta, lst_night_bands = read_tif(modis_terra_lst_night_path)
-# et_data, et_meta, et_bands = read_tif(modis_et_path)
+et_data, et_meta_dummy, et_bands = read_tif(modis_daily_et_path)
+et_data_dummy, et_meta, et_bands_dummy = read_tif(modis_et_path)
+precip_data, precip_meta, precip_bands = read_tif(precip_era5_path)
 
 # Get the dates of each dynamic variable
 ndvi_dates = get_valid_dates(ndvi_bands, "NDVI")
 lst_day_dates = get_valid_dates(lst_day_bands, "LST_Day")
 lst_night_dates = get_valid_dates(lst_night_bands, "LST_Night")
-# et_dates = get_valid_dates(et_bands, "ET")
+et_dates = get_valid_dates(et_bands, "ET")
+precip_dates = get_valid_dates(precip_bands, "Precip")
 
 # Filter to keep only the common dates between all the dynamic variables
-common_dates = sorted(ndvi_dates & lst_day_dates & lst_night_dates & smap_am_dates & smap_pm_dates)
+common_dates = sorted(ndvi_dates & lst_day_dates & lst_night_dates & smap_am_dates & smap_pm_dates & et_dates & precip_dates)
 
 smap_am_data, smap_am_bands_filt = filter_by_dates(smap_sm_am_data, smap_sm_am_bands, "AM", common_dates)
 smap_pm_data, smap_pm_bands_filt = filter_by_dates(smap_sm_pm_data, smap_sm_pm_bands, "PM", common_dates)
 ndvi_data, ndvi_bands_filt = filter_by_dates(ndvi_data, ndvi_bands, "NDVI", common_dates)
 lst_day_data, lst_day_bands_filt = filter_by_dates(lst_day_data, lst_day_bands, "LST_Day", common_dates)
 lst_night_data, lst_night_bands_filt = filter_by_dates(lst_night_data, lst_night_bands, "LST_Night", common_dates)
-# et_data, et_bands_filt = filter_by_dates(et_data, et_bands, "ET", common_dates)
+et_data, et_bands_filt = filter_by_dates(et_data, et_bands, "ET", common_dates)
+precip_data, precip_bands_filt = filter_by_dates(precip_data, precip_bands, "Precip", common_dates)
+precip_data = precip_data * 1000
 
 
 # Get the average of AM and PM SMAP products
@@ -186,12 +193,12 @@ lst_night_filled = fill_missing_data(lst_night_data)
 ndvi_resampled = resampling_data(ndvi_filled, ndvi_meta, smap_sm_shape)
 lst_day_resampled = resampling_data(lst_day_filled, lst_day_meta, smap_sm_shape)
 lst_night_resampled = resampling_data(lst_night_filled, lst_night_meta, smap_sm_shape)
-# et_resampled = resampling_data(et_filled, et_meta, smap_sm_shape)
+et_resampled = resampling_data(et_data, et_meta, smap_sm_shape)
 
 print(ndvi_resampled.shape)
 print(lst_day_resampled.shape)
 print(lst_night_resampled.shape)
-# print(et_resampled.shape)
+print(et_resampled.shape)
 
 # Load Static variables
 dem_data, dem_meta, dem_band = read_tif(dem_path)
@@ -204,7 +211,7 @@ slope_resampled = resample_static_data(slope_data, slope_meta, smap_sm_shape)
 soil_texture_resampled = resample_static_data(soil_texture_data, soil_texture_meta, smap_sm_shape, resample=Resampling.nearest)
 
 # Stack dynamic and static variables
-dynamic_inputs_stack = np.stack([ndvi_resampled, lst_day_resampled, lst_night_resampled], axis=-1)
+dynamic_inputs_stack = np.stack([ndvi_resampled, lst_day_resampled, lst_night_resampled, et_resampled, precip_data], axis=-1)
 static_inputs_stack = np.stack([dem_resampled, slope_resampled, soil_texture_resampled], axis=-1)
 static_inputs_expanded = np.expand_dims(static_inputs_stack, axis=0).repeat(smap_sm_filled.shape[0], axis=0)
 
@@ -288,10 +295,12 @@ target_shape_1km = (lst_day_meta["height"], lst_day_meta["width"])
 ndvi_1km_filled = ndvi_filled
 lst_day_1km_filled = lst_day_filled
 lst_night_1km_filled = lst_night_filled
+et_1km_resampled = resampling_data(et_data, et_meta, target_shape_1km)
+precip_1km_resmapled = resampling_data(precip_data, precip_meta, target_shape_1km)
 
 
 # Stacking the dynamic inputs at 1km
-dynamic_inputs_1km = np.stack([ndvi_1km_filled, lst_day_1km_filled, lst_night_1km_filled], axis=-1)
+dynamic_inputs_1km = np.stack([ndvi_1km_filled, lst_day_1km_filled, lst_night_1km_filled, et_1km_resampled, precip_1km_resmapled], axis=-1)
 
 # Resampling static variables to 1km
 dem_1km = resample_static_data(dem_data, dem_meta, target_shape_1km)
@@ -324,16 +333,31 @@ x, y = transformer.transform(lon, lat)
 row, col = rowcol(transform, x, y)
 print("Pixel location:", row, col)
 pred_series = pred_map[:, row, col]
+ndvi_series = ndvi_1km_filled[:, row, col]
 
 
 # Maksing the nan values
 valid_mask = ~np.isnan(pred_series)
 pred_valid = pred_series[valid_mask]
 
+# precip_data, precip_meta, precip_bands = read_tif(precip_era5_path)
+
+transform2 = precip_meta["transform"]
+crs = precip_meta["crs"]
+transformer = Transformer.from_crs("EPSG:4326", crs, always_xy=True)
+x, y = transformer.transform(lon, lat)
+row2, col2 = rowcol(transform2, x, y)
+print("Pixel location:", row2, col2)
+
+# precip_era5_path = "../../Data/ERA5_NL/ERA5_2015_2020_Precip_NL_Daily.tif"
+# precip_data, precip_meta, precip_bands = read_tif(precip_era5_path)
+precip_data = precip_data[:, row2, col2] * 1000
 
 # Converting common dates to datetime format
 common_dates_dt = pd.to_datetime(common_dates, format="%Y_%m_%d").normalize()
 pred_series = pd.Series(pred_series, index=common_dates_dt)
+ndvi_series = pd.Series(ndvi_series, index=common_dates_dt)
+precip_series = pd.Series(precip_data, index=common_dates_dt)
 # pred_series = pred_series[pred_series.index < "2017-01-01"]
 # common_dates_dt = common_dates_dt[common_dates_dt < "2017-01-01"]
 
@@ -353,30 +377,58 @@ sm_test_common = sm_test.loc[common_dates_dt]
 # Df with insitu and predictions, with datetime
 combined_df = pd.DataFrame({
     "pred": pred_series,
+    "ndvi": ndvi_series,
+    "precip": precip_series,
     "insitu": sm_test_common[" 5 cm SM"]
 })
 
 
 # Filtering out 2020 (Can filter any range) and Validation metrics calculations
 combined_df = combined_df[combined_df.index >= '2020-01-01']
+# combined_df["precip"] = precip_data
 combined_df = combined_df.dropna()
 rmse_insitu = mean_squared_error(combined_df["insitu"], combined_df["pred"], squared=False)
 r2_insitu = r2_score(combined_df["insitu"], combined_df["pred"])
+bias_insitu = (combined_df["pred"] - combined_df["insitu"]).mean()
+unbiased_rmse_insitu = np.sqrt(rmse_insitu**2 - bias_insitu**2)
 
-print(f"RMSE vs in-situ: {rmse_insitu:.4f}")
-print(f"R² vs in-situ: {r2_insitu:.4f}")
+print(f"RMSE: {rmse_insitu:.4f}")
+print(f"Unbiased RMSE: {unbiased_rmse_insitu:.4f}")
+print(f"Bias: {bias_insitu:.4f}")
+print(f"R²: {r2_insitu:.4f}")
 
 # Plotting insitu vs predictions
-plt.figure(figsize=(12, 5))
-plt.plot(combined_df.index, combined_df["insitu"], label="In-situ SM", linewidth=2)
-plt.plot(combined_df.index, combined_df["pred"], label="Predicted SM", linewidth=2)
-plt.xlabel("Date", fontsize=12)
-plt.ylabel("Soil Moisture", fontsize=12)
-plt.title("Soil Moisture Predictions vs In-situ Measurements (2020)", fontsize=14)
-plt.legend()
-plt.grid(True)
+# plt.figure(figsize=(12, 5))
+# plt.plot(combined_df.index, combined_df["insitu"], label="In-situ SM", linewidth=2)
+# plt.plot(combined_df.index, combined_df["pred"], label="Predicted SM", linewidth=2)
+# plt.xlabel("Date", fontsize=12)
+# plt.ylabel("Soil Moisture", fontsize=12)
+# plt.title("Soil Moisture Predictions vs In-situ Measurements (2020)", fontsize=14)
+# plt.legend()
+# plt.grid(True)
+# plt.tight_layout()
+# plt.show()
+
+
+fig, axes = plt.subplots(nrows=2, ncols=1, figsize=(12, 8))
+
+axes[0].plot(combined_df.index, combined_df["insitu"], label="In-situ SM", linewidth=2)
+axes[0].plot(combined_df.index, combined_df["pred"], label="Predicted SM", linewidth=2)
+# axes[0].plot(combined_df.index, combined_df["ndvi"], label="NDVI", linewidth=2)
+axes[0].set_ylabel("Soil Moisture", fontsize=12)
+axes[0].set_title("Soil Moisture Predictions vs In-situ Measurements (2020)", fontsize=14)
+axes[0].legend()
+axes[0].grid(True)
+
+axes[1].plot(combined_df.index, combined_df["precip"], label="Precipitation", linewidth=2)
+axes[1].set_xlabel("Date", fontsize=12)
+axes[1].set_ylabel("Precipitation (mm)", fontsize=12)
+axes[1].legend()
+axes[1].grid(True)
+
 plt.tight_layout()
 plt.show()
+
 
 # Writing the predictions to map, where each band corresponds to a date
 output_path = "../../Data/SMAP/SMAP_downscaled_appraoch1_smap_test.tif"
@@ -392,6 +444,7 @@ new_meta.update({
 with rasterio.open(output_path, "w", **new_meta) as dst:
     for i in range(T):
         dst.write(pred_map[i, :, :].astype("float32"), i + 1)
+        dst.set_band_description(i + 1, common_dates_dt[i].strftime("%Y_%m_%d") + "_SM")
 
 print("Done")
 ########################################################################################################################

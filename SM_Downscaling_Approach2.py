@@ -131,8 +131,8 @@ dem_path = "../../Data/StaticVars/DEM_Map_90m.tif"
 slope_path = "../../Data/StaticVars/Slope_Map_90m.tif"
 soil_texture_path = "../../Data/StaticVars/SoilTexture_Map_250m.tif"
 
-sm_test_path = "../../Data/dataverse_files/1_station_measurements/2_calibrated/ITCSM_10_cd.csv"
-lat, lon = 52.2, 6.65944
+sm_test_path = "../../Data/dataverse_files/1_station_measurements/2_calibrated/ITCSM_05_cd.csv"
+lat, lon = 52.27333, 6.69944
 
 smap_sm_am_data, smap_sm_am_meta, smap_sm_am_bands = read_tif(smap_sm_am_path)
 smap_sm_pm_data, smap_sm_pm_meta, smap_sm_pm_bands = read_tif(smap_sm_pm_path)
