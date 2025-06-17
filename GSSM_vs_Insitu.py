@@ -24,6 +24,13 @@ print(et_data.shape)
 print(et_bands[:5])
 print(et_meta)
 
+sm_api_path = "../../Data/dataverse_files/Loc_10_API.csv"
+headers_api = pd.read_csv(sm_api_path, skiprows=3, nrows=0).columns.tolist()
+sm_test = pd.read_csv(sm_api_path, skiprows=4, parse_dates=["time"], names=headers_api)
+sm_test["time"] = pd.to_datetime(sm_test["time"], format='%Y-%m-%d', errors='coerce')
+sm_test = sm_test.set_index("time")
+print(sm_test.head())
+
 # daily_et = {}
 #
 # for i, bands in enumerate(et_bands):

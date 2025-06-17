@@ -67,21 +67,46 @@ def create_seq(y, time_steps=30, forecasts=7):
     return np.array(ys)
 
 
+def get_valid_dates(bands, suffix):
+    """ Function to extract dates from each raster"""
+    return set(
+        b.replace(f"_{suffix}", "") for b in bands if b.endswith(f"_{suffix}")
+    )
+
+
+def filter_by_dates(data, bands, suffix, common_dates):
+    """ Function to filter the data using common dates"""
+    filtered_indices = []
+    filtered_band_names = []
+
+    for i, b in enumerate(bands):
+        if b.endswith(f"_{suffix}"):
+            date = b.replace(f"_{suffix}", "")
+            if date in common_dates:
+                filtered_indices.append(i)
+                filtered_band_names.append(b)
+
+    return data[filtered_indices], filtered_band_names
+
+
 era5_train_paths = [
-    "../../Data/ERA5_NL/ERA5_2016_2022_Precip_NL_Daily.tif",
-    "../../Data/ERA5_NL/ERA5_2016_2022_Temp_NL_Daily.tif",
-    "../../Data/ERA5_NL/ERA5_2016_2022_RH_NL_Daily.tif",
-    "../../Data/ERA5_NL/ERA5_2016_2022_WindSpeed_NL_Daily.tif",
-    "../../Data/ERA5_NL/ERA5_2016_2022_Radiation_NL_Daily.tif",
-    "../../Data/ERA5_NL/ERA5_2016_2022_ET_NL_Daily.tif",
-    "../../Data/ERA5_NL/ERA5_2016_2022_SoilTemp_NL_Daily.tif"
+    "../../Data/ERA5_NL/ERA5_2015_2020_Precip_NL_Daily.tif",
+    "../../Data/ERA5_NL/ERA5_2015_2020_Temp_NL_Daily.tif",
+    "../../Data/ERA5_NL/ERA5_2015_2020_RH_NL_Daily.tif",
+    "../../Data/ERA5_NL/ERA5_2015_2020_WindSpeed_NL_Daily.tif",
+    "../../Data/ERA5_NL/ERA5_2015_2020_Radiation_NL_Daily.tif",
+    "../../Data/ERA5_NL/ERA5_2015_2020_ET_NL_Daily.tif",
+    "../../Data/ERA5_NL/ERA5_2015_2020_SoilTemp_NL_Daily.tif"
 ]
 
 
 smap_sm_am_train = "../../Data/SMAP/SMAP_2016_2022_SoilMoisture_AM_NL_Daily.tif"
 smap_sm_pm_train = "../../Data/SMAP/SMAP_2016_2022_SoilMoisture_PM_NL_Daily.tif"
-sm_test_path = "../../Data/dataverse_files/1_station_measurements/2_calibrated/ITCSM_09_cd.csv"
 gssm_sm_train = "../../Data/GSSM/GSSM_2016_2020_SM_NL_Daily_1km.tif"
+
+
+sm_test_path = "../../Data/dataverse_files/1_station_measurements/2_calibrated/ITCSM_10_cd.csv"
+lat, lon = 52.2, 6.65944
 
 weather_train = stack_weather(era5_train_paths)[60:1461]
 weather_test = stack_weather(era5_train_paths)[1461:1461+366]
@@ -187,11 +212,7 @@ with rasterio.open(smap_sm_am_train) as src:
     crs = src.crs
 
 transformer = Transformer.from_crs("EPSG:4326", crs, always_xy=True)
-
-lon, lat = 6.84306, 52.14639
-
 x, y = transformer.transform(lon, lat)
-
 row, col = rowcol(transform, x, y)
 
 # lat, lon
