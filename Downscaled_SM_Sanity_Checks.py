@@ -79,55 +79,87 @@ precip_era5_path = "../../Data/ERA5_NL/ERA5_2015_2020_Precip_NL_Daily.tif"
 precip_data, precip_meta, precip_bands = read_tif(precip_era5_path)
 precip_data = precip_data * 1000
 
+
+sm_data, sm_meta, sm_bands = read_tif(sm_downscaled_path)
 sm_new_dates = sorted(get_valid_dates(sm_bands, "SM"))
-precip_dates = get_valid_dates(precip_bands, "Precip")
-precip_data, precip_bands_filt = filter_by_dates(precip_data, precip_bands, "Precip", sm_new_dates)
-print(precip_data.shape)
+print(sm_new_dates[:10])
 
-sm_new_dates = pd.to_datetime(sm_new_dates, format="%Y_%m_%d")
-transform2 = precip_meta["transform"]
-crs = precip_meta["crs"]
+available_dates = set(pd.to_datetime([d.replace('_', '-') for d in sm_new_dates]))
 
-transformer = Transformer.from_crs("EPSG:4326", crs, always_xy=True)
-x1, y1 = transformer.transform(lon1, lat1)
-row1, col1 = rowcol(transform2, x1, y1)
-print("Pixel location:", row1, col1)
+full_range = pd.date_range(start="2015-04-01", end="2020-12-31")
 
-x3, y3 = transformer.transform(lon3, lat3)
-row3, col3 = rowcol(transform2, x3, y3)
-print("Pixel location:", row3, col3)
+missing_dates = sorted(set(full_range) - available_dates)
 
-x5, y5 = transformer.transform(lon5, lat5)
-row5, col5 = rowcol(transform2, x5, y5)
-print("Pixel location:", row5, col5)
+missing_dates_str = [d.strftime('%Y_%m_%d') for d in missing_dates]
+
+print(missing_dates_str[:10])
 
 
-precip_data1 = precip_data[:, row1, col1]
-precip_data3 = precip_data[:, row3, col3]
-precip_data5 = precip_data[:, row5, col5]
-
-precip_series1 = pd.Series(precip_data1, index=sm_new_dates)
-precip_series3 = pd.Series(precip_data3, index=sm_new_dates)
-precip_series5 = pd.Series(precip_data5, index=sm_new_dates)
-
-precip_series1 = precip_series1[precip_series1.index >= "2018-01-01"]
-precip_series3 = precip_series3[precip_series3.index >= "2018-01-01"]
-precip_series5 = precip_series5[precip_series5.index >= "2018-01-01"]
+sm_new_dates = [pd.to_datetime(b.replace('_', '-')) for b in sm_new_dates]
 
 
-fig, axs = plt.subplots(nrows=2, ncols=1, figsize=(12, 8))
+mask = [
+    (date >= pd.to_datetime("2017-01-01")) and (date <= pd.to_datetime("2019-05-31"))
+    for date in sm_new_dates
+]
 
-# axs[0].plot(sm_dates, sm_series1, label="Location 1 Built-up", linewidth=2)
-axs[0].plot(sm_dates, sm_series3, label="Location 3 Forest", linewidth=2)
-axs[0].plot(sm_dates, sm_series5, label="Location 5 Field", linewidth=2)
-axs[0].set_ylabel("Soil Moisture", fontsize=12)
-axs[0].set_title("Soil Moisture Predictions", fontsize=14)
-plt.legend()
+print(mask)
 
-axs[1].plot(sm_dates, precip_series3, label="Location 3 Forest", linewidth=2)
-axs[1].plot(sm_dates, precip_series5, label="Location 5 Field", linewidth=2)
-axs[1].set_xlabel("Date", fontsize=12)
-axs[1].set_ylabel("Precipitation (mm)", fontsize=12)
-plt.legend()
-plt.tight_layout()
-plt.show()
+filtered_bands = [b for b, m in zip(sm_bands, mask) if m]
+filtered_data = sm_data[mask]
+
+print(f"Filtered to {len(filtered_bands)} bands")
+print(filtered_bands[:5])
+
+
+# precip_dates = get_valid_dates(precip_bands, "Precip")
+# precip_data, precip_bands_filt = filter_by_dates(precip_data, precip_bands, "Precip", sm_new_dates)
+# print(precip_data.shape)
+#
+# sm_new_dates = pd.to_datetime(sm_new_dates, format="%Y_%m_%d")
+# transform2 = precip_meta["transform"]
+# crs = precip_meta["crs"]
+#
+# transformer = Transformer.from_crs("EPSG:4326", crs, always_xy=True)
+# x1, y1 = transformer.transform(lon1, lat1)
+# row1, col1 = rowcol(transform2, x1, y1)
+# print("Pixel location:", row1, col1)
+#
+# x3, y3 = transformer.transform(lon3, lat3)
+# row3, col3 = rowcol(transform2, x3, y3)
+# print("Pixel location:", row3, col3)
+#
+# x5, y5 = transformer.transform(lon5, lat5)
+# row5, col5 = rowcol(transform2, x5, y5)
+# print("Pixel location:", row5, col5)
+#
+#
+# precip_data1 = precip_data[:, row1, col1]
+# precip_data3 = precip_data[:, row3, col3]
+# precip_data5 = precip_data[:, row5, col5]
+#
+# precip_series1 = pd.Series(precip_data1, index=sm_new_dates)
+# precip_series3 = pd.Series(precip_data3, index=sm_new_dates)
+# precip_series5 = pd.Series(precip_data5, index=sm_new_dates)
+#
+# precip_series1 = precip_series1[precip_series1.index >= "2018-01-01"]
+# precip_series3 = precip_series3[precip_series3.index >= "2018-01-01"]
+# precip_series5 = precip_series5[precip_series5.index >= "2018-01-01"]
+#
+#
+# fig, axs = plt.subplots(nrows=2, ncols=1, figsize=(12, 8))
+#
+# # axs[0].plot(sm_dates, sm_series1, label="Location 1 Built-up", linewidth=2)
+# axs[0].plot(sm_dates, sm_series3, label="Location 3 Forest", linewidth=2)
+# axs[0].plot(sm_dates, sm_series5, label="Location 5 Field", linewidth=2)
+# axs[0].set_ylabel("Soil Moisture", fontsize=12)
+# axs[0].set_title("Soil Moisture Predictions", fontsize=14)
+# plt.legend()
+#
+# axs[1].plot(sm_dates, precip_series3, label="Location 3 Forest", linewidth=2)
+# axs[1].plot(sm_dates, precip_series5, label="Location 5 Field", linewidth=2)
+# axs[1].set_xlabel("Date", fontsize=12)
+# axs[1].set_ylabel("Precipitation (mm)", fontsize=12)
+# plt.legend()
+# plt.tight_layout()
+# plt.show()

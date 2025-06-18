@@ -429,7 +429,7 @@ combined_df = pd.DataFrame({
 
 
 # Filtering out 2020 (Can filter any range) and Validation metrics calculations
-combined_df = combined_df[combined_df.index >= '2020-01-01']
+combined_df = combined_df[combined_df.index >= '2015-01-01']
 # combined_df["precip"] = precip_data
 combined_df = combined_df.dropna()
 rmse_insitu = mean_squared_error(combined_df["insitu"], combined_df["pred"], squared=False)

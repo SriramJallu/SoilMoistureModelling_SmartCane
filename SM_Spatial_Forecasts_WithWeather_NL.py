@@ -18,7 +18,8 @@ tf.random.set_seed(123)
 def read_tif(tif):
     with rasterio.open(tif) as src:
         data = src.read().astype(np.float32)
-    return data
+        bands = src.descriptions
+    return data, bands
 
 
 def stack_weather(tif):
@@ -104,27 +105,78 @@ smap_sm_am_train = "../../Data/SMAP/SMAP_2016_2022_SoilMoisture_AM_NL_Daily.tif"
 smap_sm_pm_train = "../../Data/SMAP/SMAP_2016_2022_SoilMoisture_PM_NL_Daily.tif"
 gssm_sm_train = "../../Data/GSSM/GSSM_2016_2020_SM_NL_Daily_1km.tif"
 
+smap_sm_downscaled_path = "../../Data/SMAP/SMAP_downscaled_appraoch1_smap_test.tif"
 
 sm_test_path = "../../Data/dataverse_files/1_station_measurements/2_calibrated/ITCSM_10_cd.csv"
 lat, lon = 52.2, 6.65944
 
-weather_train = stack_weather(era5_train_paths)[60:1461]
-weather_test = stack_weather(era5_train_paths)[1461:1461+366]
+# weather_train = stack_weather(era5_train_paths)[60:1461]
+# weather_test = stack_weather(era5_train_paths)[1461:1461+366]
 
 # sm_train = read_tif(gssm_sm_train)[51:1461-9]
 # sm_test = read_tif(gssm_sm_train)[1461-9:1461-9+366]
 
-smap_sm_am_data = read_tif(smap_sm_am_train)
-smap_sm_pm_data = read_tif(smap_sm_pm_train)
+# smap_sm_am_data = read_tif(smap_sm_am_train)
+# smap_sm_pm_data = read_tif(smap_sm_pm_train)
+#
+# smap_sm_avg_data = np.where(
+#     np.isnan(smap_sm_am_data) & np.isnan(smap_sm_pm_data),
+#     np.nan,
+#     np.nanmean(np.stack([smap_sm_am_data, smap_sm_pm_data]), axis=0)
+# )
+#
+# sm_train = smap_sm_avg_data[60:1461]
+# sm_test = smap_sm_avg_data[1461:1461+366]
 
-smap_sm_avg_data = np.where(
-    np.isnan(smap_sm_am_data) & np.isnan(smap_sm_pm_data),
-    np.nan,
-    np.nanmean(np.stack([smap_sm_am_data, smap_sm_pm_data]), axis=0)
-)
+sm_data, sm_bands = read_tif(smap_sm_downscaled_path)
 
-sm_train = smap_sm_avg_data[60:1461]
-sm_test = smap_sm_avg_data[1461:1461+366]
+# sm_train = sm_data[:-366]
+# sm_test = sm_data[-366:]
+
+era5_precip, era5_precip_bands = read_tif(era5_train_paths[0])
+era5_temp, era5_temp_bands = read_tif(era5_train_paths[1])
+era5_rh, era5_rh_bands = read_tif(era5_train_paths[2])
+era5_wind, era5_wind_bands = read_tif(era5_train_paths[3])
+era5_rad, era5_rad_bands = read_tif(era5_train_paths[4])
+era5_et, era5_et_bands = read_tif(era5_train_paths[5])
+era5_soiltemp, era5_soiltemp_bands = read_tif(era5_train_paths[6])
+
+sm_dates = get_valid_dates(sm_bands, "SM")
+era5_precip_dates = get_valid_dates(era5_precip_bands, "Precip")
+era5_temp_dates = get_valid_dates(era5_temp_bands, "Temp")
+era5_rh_dates = get_valid_dates(era5_rh_bands, "RH")
+era5_wind_dates = get_valid_dates(era5_wind_bands, "Wind")
+era5_rad_dates = get_valid_dates(era5_rad_bands, "Radiation")
+era5_et_dates = get_valid_dates(era5_et_bands, "ET")
+era5_soiltemp_dates = get_valid_dates(era5_soiltemp_bands, "SoilTemp")
+
+common_dates = sorted(sm_dates & era5_precip_dates & era5_temp_dates & era5_rh_dates & era5_wind_dates & era5_rad_dates & era5_et_dates & era5_soiltemp_dates)
+
+era5_precip, era5_precip_bands_filt = filter_by_dates(era5_precip, era5_precip_bands, "Precip", common_dates)
+era5_temp, era5_temp_bands_filt = filter_by_dates(era5_temp, era5_temp_bands, "Temp", common_dates)
+era5_rh, era5_rh_bands_filt = filter_by_dates(era5_rh, era5_rh_bands, "RH", common_dates)
+era5_wind, era5_wind_bands_filt = filter_by_dates(era5_wind, era5_wind_bands, "Wind", common_dates)
+era5_rad, era5_rad_bands_filt = filter_by_dates(era5_rad, era5_rad_bands, "Radiation", common_dates)
+era5_et, era5_et_bands_filt = filter_by_dates(era5_et, era5_et_bands, "ET", common_dates)
+era5_soiltemp, era5_soiltemp_bands_filt = filter_by_dates(era5_soiltemp, era5_soiltemp_bands, "SoilTemp", common_dates)
+
+
+sm_new_dates = [pd.to_datetime(b.replace('_', '-')) for b in common_dates]
+
+mask = [
+    (date >= pd.to_datetime("2017-01-01")) and (date <= pd.to_datetime("2019-05-31"))
+    for date in sm_new_dates
+]
+
+
+weather_data_stack = np.stack([era5_precip, era5_temp, era5_rh, era5_wind, era5_rad, era5_et, era5_soiltemp], axis=-1)
+
+# weather_train = weather_data_stack[:-366]
+weather_train = weather_data_stack[mask]
+weather_test = weather_data_stack[-366:]
+
+sm_train = sm_data[mask]
+sm_test = sm_data[-366:]
 
 print(weather_train.shape)
 print(sm_train.shape)
@@ -164,23 +216,23 @@ X_test, y_test, pixel_indices_test = create_sequences(sm_transform, weather_tran
 
 print(X_train.shape, y_train.shape)
 
-model = tf.keras.Sequential([
-    tf.keras.layers.Input(shape=(past_days, X_train.shape[-1])),
-    tf.keras.layers.Conv1D(32, kernel_size=3, activation='relu', padding='same'),
-    tf.keras.layers.Conv1D(64, kernel_size=3, activation='relu', padding='same'),
-    tf.keras.layers.LSTM(64, activation='relu', return_sequences=True),
-    tf.keras.layers.LSTM(64, activation='relu'),
-    tf.keras.layers.Dense(64, activation='relu'),
-    tf.keras.layers.Dense(forecast_days)
-])
-
-model.compile(optimizer='adam', loss='mse')
-model.fit(X_train, y_train, epochs=1, batch_size=32, validation_split=0.2)
-
-# model_name = f"sm_weather_conv_lstm_{datetime.now().strftime('%Y%m%d_%H%M%S')}.h5"
+# model = tf.keras.Sequential([
+#     tf.keras.layers.Input(shape=(past_days, X_train.shape[-1])),
+#     # tf.keras.layers.Conv1D(32, kernel_size=3, activation='relu', padding='same'),
+#     tf.keras.layers.Conv1D(64, kernel_size=3, activation='relu', padding='same'),
+#     # tf.keras.layers.LSTM(64, activation='relu', return_sequences=True),
+#     tf.keras.layers.LSTM(64, activation='relu'),
+#     tf.keras.layers.Dense(64, activation='relu'),
+#     tf.keras.layers.Dense(forecast_days)
+# ])
+#
+# model.compile(optimizer='adam', loss='mse')
+# model.fit(X_train, y_train, epochs=1, batch_size=32, validation_split=0.2)
+#
+# model_name = f"sm_smap_weather_downscaled_conv_lstm_{datetime.now().strftime('%Y%m%d_%H%M%S')}.h5"
 # model.save(f"../../Models/{model_name}")
 #
-# model = tf.keras.models.load_model("../../Models/sm_weather_conv_lstm_20250521_142831.h5")
+model = tf.keras.models.load_model("../../Models/sm_smap_weather_downscaled_conv_lstm_20250618_120259.h5")
 y_preds = model.predict(X_test)
 
 
@@ -207,7 +259,7 @@ sm_test = sm_test.resample("D").mean()
 
 sm_test_insitu = create_seq(sm_test[" 5 cm SM"], 30, 7)
 
-with rasterio.open(smap_sm_am_train) as src:
+with rasterio.open(smap_sm_downscaled_path) as src:
     transform = src.transform
     crs = src.crs
 
@@ -220,10 +272,11 @@ row, col = rowcol(transform, x, y)
 target_pixel = (row, col)
 
 matching_indices = [idx for idx, pix in enumerate(pixel_indices_test) if pix == target_pixel]
+print(matching_indices)
 
 for day in range(forecast_days):
-    # true_series = sm_test_insitu[:, day]
-    true_series = y_test_inv[matching_indices, day]
+    true_series = sm_test_insitu[:, day]
+    # true_series = y_test_inv[matching_indices, day]
     pred_series = y_preds_inv[matching_indices, day]
     rmse = np.sqrt(mean_squared_error(true_series, pred_series))
     r2 = r2_score(true_series, pred_series)
@@ -232,8 +285,8 @@ for day in range(forecast_days):
 fig, axs = plt.subplots(3, 1, figsize=(14, 10), sharex="all")
 
 for i in range(3):
-    # axs[i].plot(sm_test_insitu[:, i], label="Actual", color="black")
-    axs[i].plot(y_test_inv[matching_indices, i], label="Actual", color="black")
+    axs[i].plot(sm_test_insitu[:, i], label="Actual", color="black")
+    # axs[i].plot(y_test_inv[matching_indices, i], label="Actual", color="black")
     axs[i].plot(y_preds_inv[matching_indices, i], label="Predicted (Mean)", color="green")
     axs[i].set_title(f"SM Prediction - Day {i+1}")
     axs[i].set_ylabel("SM")
