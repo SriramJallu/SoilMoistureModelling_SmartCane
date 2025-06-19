@@ -6,7 +6,8 @@ import random
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import GridSearchCV
 import tensorflow as tf
-from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error, accuracy_score, confusion_matrix, classification_report
+from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error, accuracy_score, confusion_matrix, \
+    classification_report
 from rasterio.enums import Resampling
 from scipy.signal import savgol_filter
 from pyproj import Transformer
@@ -18,16 +19,45 @@ random.seed(123)
 tf.random.set_seed(123)
 
 
-def read_tif(tif):
-    """ Function to read the rasters, returns the data, metadata and band names"""
-    with rasterio.open(tif) as src:
+def read_tif(path):
+    """
+    Reads a tif file to return its data as a NumPy array.
+
+    Parameters
+    ----------
+    path : str
+        The location of the tif file.
+
+    Returns
+    -------
+    data : np.ndarray
+        A NumPy array containing the raster data with shape (bands, height, width).
+    bands : tuple or None
+        A tuple of band descriptions.
+    meta : dict
+        A dictionary of meta data (eg: crs, transform) of the raster.
+    """
+    with rasterio.open(path) as src:
         data = src.read().astype(np.float32)
         meta = src.meta
         bands = src.descriptions
     return data, meta, bands
 
 
-def fill_missing_data(data, max_window=28):
+def fill_missing_data(data):
+    """"
+    Filling the missing data by interpolating and backward filling
+
+    Parameters
+    ----------
+    data : np.ndarray
+        NumPy array of the raster of shape (T, H, W)
+
+    Return
+    ------
+    filled : np.ndarray
+        NumPy array of the filled raster of shape (T, H, W)
+    """
     T, W, H = data.shape
     data_reshaped = data.reshape(T, -1)
     filled = np.empty_like(data_reshaped)
@@ -39,12 +69,30 @@ def fill_missing_data(data, max_window=28):
         series_filled = pd.Series(
             savgol_filter(series.interpolate().fillna(method='bfill'), window_length=7, polyorder=2))
         filled[:, idx] = series_filled.to_numpy()
-
     return filled.reshape(T, W, H)
 
 
-def resampling_data(src_data, src_meta, target_shape, resample=Resampling.bilinear):
-    """ Function for resampling dynamic data"""
+def resampling_dynamic_data(src_data, src_meta, target_shape, resample=Resampling.bilinear):
+    """
+    Resampling the dynamic variables to a target resolution (eg: from a fine resolution (NDVI, LST @ 1km) to coarse
+    resolution (SM @ 10km)).
+
+    Parameters
+    ----------
+    src_data : np.ndarray
+        NumPy array of raster to be resampled of the shape (T, H, W).
+    src_meta : dict
+        Dictionary of meta data of the raster to be resampled.
+    target_shape : tuple
+        Tuple of the desired shape (H_target, W_target), representing the resolution to which the src_data needs to be resampled to.
+    resample : rasterio.enums.Resampling
+        Resampling method (default=Bilinear).
+
+    Return
+    ------
+    resampled : np.ndarray
+        NumPy array of the resampled dynamic raster of the shape (T, H_target, W_target).
+    """
     T, H, W = src_data.shape
     resampled = np.zeros((T, target_shape[0], target_shape[1]), dtype=np.float32)
 
@@ -69,8 +117,28 @@ def resampling_data(src_data, src_meta, target_shape, resample=Resampling.biline
     return resampled
 
 
-def resample_static_data(static_data, static_meta, smap_shape, resample=Resampling.bilinear):
-    """ Function for resampling static data"""
+def resample_static_data(static_data, static_meta, target_shape, resample=Resampling.bilinear):
+    """
+    Resampling the static variables to a target resolution (eg: from a fine resolution (DEM, Slope @ 30m) to coarse
+    resolution (SM @ 10km)).
+
+    Parameters
+    ----------
+    static_data : np.ndarray
+        NumPy array of raster to be resampled of the shape (H, W).
+    static_meta : dict
+        Dictionary of meta data of the raster to be resampled.
+    target_shape : tuple
+        Tuple of the desired shape (H_target, W_target), representing the resolution to which the src_data needs to be
+        resampled to.
+    resample : rasterio.enums.Resampling
+        Resampling method (default=Bilinear).
+
+    Return
+    ------
+    resampled : np.ndarray
+        NumPy array of the resampled dynamic raster of the shape (H_target, W_target).
+    """
     data = static_data[0]
     with rasterio.MemoryFile() as memfile:
         with memfile.open(
@@ -86,21 +154,55 @@ def resample_static_data(static_data, static_meta, smap_shape, resample=Resampli
 
         with memfile.open() as dataset:
             resampled = dataset.read(
-                out_shape=(1, smap_shape[0], smap_shape[1]),
+                out_shape=(1, target_shape[0], target_shape[1]),
                 resampling=resample
             )[0]
     return resampled
 
 
 def get_valid_dates(bands, suffix):
-    """ Function to extract dates from each raster"""
+    """
+    Extract dates from a raster, given each band has descriptions of the format "YYYY_MM_DD_suffix".
+
+    Parameters
+    ----------
+    bands : tuple
+        A tuple of band descriptions.
+    suffix : str
+        String of the variable (eg: "SM", "Precip").
+
+    Return
+    ------
+    set of str
+        Set of unique dates (as strings of format "YYY_MM_DD").
+    """
     return set(
         b.replace(f"_{suffix}", "") for b in bands if b.endswith(f"_{suffix}")
     )
 
 
 def filter_by_dates(data, bands, suffix, common_dates):
-    """ Function to filter the data using common dates"""
+    """
+    Filter the raster data to align all the features.
+
+    Parameters
+    ----------
+    data : np.ndarray
+        NumPy array containing the raster data with shape (bands, height, width).
+    bands : tuple
+        A tuple of band descriptions.
+    suffix : str
+        String of the variable (eg: "SM", "Precip").
+    common_dates : list
+        List of unique and common dates (as strings of format "YYY_MM_DD") between all the features.
+
+    Returns
+    -------
+    data : np.ndarray
+        NumPy array containing the raster data with shape (bands, height, width), filtered to common dates.
+    bands : tuple
+        A tuple of band descriptions, filtered to common dates.
+    """
     filtered_indices = []
     filtered_band_names = []
 
@@ -110,7 +212,6 @@ def filter_by_dates(data, bands, suffix, common_dates):
             if date in common_dates:
                 filtered_indices.append(i)
                 filtered_band_names.append(b)
-
     return data[filtered_indices], filtered_band_names
 
 
@@ -127,8 +228,6 @@ smap_sm_am_path = "../../Data/SMAP/SMAP_L3_2015_2020_SoilMoisture_AM_NL_Daily.ti
 smap_sm_pm_path = "../../Data/SMAP/SMAP_L3_2015_2020_SoilMoisture_PM_NL_Daily.tif"
 modis_terra_lst_day_path = "../../Data/MODIS/MODIS_TERRA_LST_Day_2015_2020_1km.tif"
 modis_terra_lst_night_path = "../../Data/MODIS/MODIS_TERRA_LST_Night_2015_2020_1km.tif"
-modis_aqua_lst_day_path = "../../Data/MODIS/MODIS_AQUA_LST_Day_2017_2021_1km.tif"
-modis_aqua_lst_night_path = "../../Data/MODIS/MODIS_AQUA_LST_Night_2017_2021_1km.tif"
 modis_et_path = "../../Data/MODIS/MODIS_ET_8Day_2015_2020_500m.tif"
 modis_daily_et_path = "../../Data/MODIS/MODIS_ET_Daily_2015_2020.tif"
 precip_era5_path = "../../Data/ERA5_NL/ERA5_2015_2020_Precip_NL_Daily.tif"
@@ -171,7 +270,6 @@ era5_sm_dates = get_valid_dates(era5_sm_bands, "SM")
 
 # Filter to keep only the common dates between all the dynamic variables
 common_dates = sorted(ndvi_dates & lst_day_dates & lst_night_dates & smap_am_dates & smap_pm_dates & et_dates & precip_dates)
-# common_dates = sorted(ndvi_dates & lst_day_dates & lst_night_dates & era5_sm_dates & et_dates & precip_dates)
 
 smap_am_data, smap_am_bands_filt = filter_by_dates(smap_sm_am_data, smap_sm_am_bands, "AM", common_dates)
 smap_pm_data, smap_pm_bands_filt = filter_by_dates(smap_sm_pm_data, smap_sm_pm_bands, "PM", common_dates)
@@ -198,13 +296,12 @@ ndvi_filled = fill_missing_data(ndvi_data)
 lst_day_filled = fill_missing_data(lst_day_data)
 lst_night_filled = fill_missing_data(lst_night_data)
 era5_sm_filled = fill_missing_data(era5_sm_data)
-# et_filled = fill_missing_data(et_data) / 8
 
 # Resample dynamic variables from fine to SMAP resolution
-ndvi_resampled = resampling_data(ndvi_filled, ndvi_meta, smap_sm_shape)
-lst_day_resampled = resampling_data(lst_day_filled, lst_day_meta, smap_sm_shape)
-lst_night_resampled = resampling_data(lst_night_filled, lst_night_meta, smap_sm_shape)
-et_resampled = resampling_data(et_data, et_meta, smap_sm_shape)
+ndvi_resampled = resampling_dynamic_data(ndvi_filled, ndvi_meta, smap_sm_shape)
+lst_day_resampled = resampling_dynamic_data(lst_day_filled, lst_day_meta, smap_sm_shape)
+lst_night_resampled = resampling_dynamic_data(lst_night_filled, lst_night_meta, smap_sm_shape)
+et_resampled = resampling_dynamic_data(et_data, et_meta, smap_sm_shape)
 
 print(ndvi_resampled.shape)
 print(lst_day_resampled.shape)
@@ -226,17 +323,12 @@ soil_texture_resampled = resample_static_data(soil_texture_data, soil_texture_me
 dynamic_inputs_stack = np.stack([ndvi_resampled, lst_day_resampled, lst_night_resampled, et_resampled, precip_data], axis=-1)
 static_inputs_stack = np.stack([dem_resampled, slope_resampled, soil_texture_resampled], axis=-1)
 static_inputs_expanded = np.expand_dims(static_inputs_stack, axis=0).repeat(smap_sm_filled.shape[0], axis=0)
-# static_inputs_expanded = np.expand_dims(static_inputs_stack, axis=0).repeat(era5_sm_filled.shape[0], axis=0)
 
-# Flatten and concatenate dynamic & static variables to shape (T*H*W, D+S)
-# X_data = flatten_inputs(dynamic_inputs_stack, static_inputs_stack)
+# Concatenate dynamic & static variables to shape (T*H*W, D+S)
 X_data = np.concatenate([dynamic_inputs_stack, static_inputs_expanded], axis=-1)
-print("New X_data shape", X_data.shape)
 
 # Flatten target variable to shape (T*H*W,)
 y_data = smap_sm_filled.reshape(smap_sm_filled.shape[0], smap_sm_filled.shape[1], smap_sm_filled.shape[2], 1)
-# y_data = era5_sm_filled.reshape(era5_sm_filled.shape[0], era5_sm_filled.shape[1], era5_sm_filled.shape[2], 1)
-print("New y_data shape", y_data.shape)
 
 # Create a mask to non-NAN values in X and y data
 y_mask = ~np.isnan(y_data).squeeze(-1)
@@ -247,9 +339,6 @@ combined_mask = y_mask & x_mask
 # Filter out NAN values
 X_data = X_data[y_mask]
 y_data = y_data[y_mask]
-
-print(X_data.shape)
-print(y_data.shape)
 
 # Scale input features
 scaler = StandardScaler()
@@ -277,31 +366,6 @@ model = xgb.XGBRegressor(
 )
 model.fit(X_scaled, y_data.ravel())
 
-# Grid search for finding best hyperparameters
-# xgb_model = xgb.XGBRegressor(objective='reg:squarederror', random_state=123, n_jobs=-1)
-#
-# params = {
-#     "n_estimators": [100, 150, 200],
-#     "learning_rate": [0.1, 0.01, 0.001],
-#     "max_depth": [3, 5, 7],
-#     "subsample": [0.4, 0.6, 0.8],
-#     'colsample_bytree': [0.6, 0.8, 1.0]
-# }
-#
-# grid_search = GridSearchCV(
-#     estimator=xgb_model,
-#     param_grid=params,
-#     scoring='neg_mean_squared_error',
-#     cv=3,
-#     n_jobs=-1,
-#     verbose=1
-# )
-#
-# grid_search.fit(X_scaled, y_data.ravel())
-# model = grid_search.best_estimator_
-# print("Best parameters found: ", grid_search.best_params_)
-# print("Best RMSE (neg): ", grid_search.best_score_)
-
 # Feature Importance
 feature_names = ["NDVI", "LST Day", "LST Night", "ET", "Precip", "DEM", "Slope", "Soil Texture"]
 print("Feature Names:", feature_names)
@@ -315,8 +379,8 @@ target_shape_1km = (lst_day_meta["height"], lst_day_meta["width"])
 ndvi_1km_filled = ndvi_filled
 lst_day_1km_filled = lst_day_filled
 lst_night_1km_filled = lst_night_filled
-et_1km_resampled = resampling_data(et_data, et_meta, target_shape_1km)
-precip_1km_resmapled = resampling_data(precip_data, precip_meta, target_shape_1km)
+et_1km_resampled = resampling_dynamic_data(et_data, et_meta, target_shape_1km)
+precip_1km_resmapled = resampling_dynamic_data(precip_data, precip_meta, target_shape_1km)
 
 
 # Stacking the dynamic inputs at 1km
@@ -326,19 +390,6 @@ dynamic_inputs_1km = np.stack([ndvi_1km_filled, lst_day_1km_filled, lst_night_1k
 dem_1km = resample_static_data(dem_data, dem_meta, target_shape_1km)
 slope_1km = resample_static_data(slope_data, slope_meta, target_shape_1km)
 soil_texture_1km = resample_static_data(soil_texture_data, soil_texture_meta, target_shape_1km, resample=Resampling.nearest)
-
-
-# output_path = "../../Data/StaticVars/SoilTexture_Map_Resampled_1km.tif"
-# soil_texture_meta.update({
-#     "height": soil_texture_1km.shape[0],
-#     "width": soil_texture_1km.shape[1],
-#     "count": 1,
-#     "dtype": soil_texture_1km.dtype,
-#     "transform": ndvi_meta["transform"],
-#     "driver": "GTiff"
-# })
-# with rasterio.open(output_path, "w", **soil_texture_meta) as dst:
-#     dst.write(soil_texture_1km, 1)
 
 # Stacking static inputs
 static_inputs_1km = np.stack([dem_1km, slope_1km, soil_texture_1km], axis=-1)
@@ -356,7 +407,6 @@ y_pred_1km = model.predict(X_1km_scaled)                                        
 pred_grid = np.full(X_1km.shape[:-1], np.nan)                                       # Grid to store the 1km predictions
 pred_grid[valid_mask] = y_pred_1km.flatten()
 pred_map = pred_grid.reshape((smap_sm_filled.shape[0], lst_day_meta["height"], lst_day_meta["width"]))
-# pred_map = pred_grid.reshape((era5_sm_filled.shape[0], lst_day_meta["height"], lst_day_meta["width"]))
 
 
 # Getting the corresponding pixel coordinates and the timeseries at that coordinates, given latitude and longitude
@@ -365,7 +415,6 @@ crs = ndvi_meta["crs"]
 transformer = Transformer.from_crs("EPSG:4326", crs, always_xy=True)
 x, y = transformer.transform(lon, lat)
 row, col = rowcol(transform, x, y)
-print("Pixel location:", row, col)
 pred_series = pred_map[:, row, col]
 ndvi_series = ndvi_1km_filled[:, row, col]
 
@@ -374,17 +423,11 @@ ndvi_series = ndvi_1km_filled[:, row, col]
 valid_mask = ~np.isnan(pred_series)
 pred_valid = pred_series[valid_mask]
 
-# precip_data, precip_meta, precip_bands = read_tif(precip_era5_path)
-
 transform2 = precip_meta["transform"]
 crs = precip_meta["crs"]
 transformer = Transformer.from_crs("EPSG:4326", crs, always_xy=True)
 x, y = transformer.transform(lon, lat)
 row2, col2 = rowcol(transform2, x, y)
-print("Pixel location:", row2, col2)
-
-# precip_era5_path = "../../Data/ERA5_NL/ERA5_2015_2020_Precip_NL_Daily.tif"
-# precip_data, precip_meta, precip_bands = read_tif(precip_era5_path)
 precip_data = precip_data[:, row2, col2]
 era5_sm_data = era5_sm_data[:, row2, col2]
 
@@ -394,9 +437,6 @@ pred_series = pd.Series(pred_series, index=common_dates_dt)
 ndvi_series = pd.Series(ndvi_series, index=common_dates_dt)
 precip_series = pd.Series(precip_data, index=common_dates_dt)
 era5_series = pd.Series(era5_sm_data, index=common_dates_dt)
-# pred_series = pred_series[pred_series.index < "2017-01-01"]
-# common_dates_dt = common_dates_dt[common_dates_dt < "2017-01-01"]
-
 
 # Reading and filtering the insitu data (csv) to match the common_dates of predictions
 headers = pd.read_csv(sm_test_path, skiprows=18, nrows=0).columns.tolist()
@@ -430,7 +470,6 @@ combined_df = pd.DataFrame({
 
 # Filtering out 2020 (Can filter any range) and Validation metrics calculations
 combined_df = combined_df[combined_df.index >= '2015-01-01']
-# combined_df["precip"] = precip_data
 combined_df = combined_df.dropna()
 rmse_insitu = mean_squared_error(combined_df["insitu"], combined_df["pred"], squared=False)
 r2_insitu = r2_score(combined_df["insitu"], combined_df["pred"])
@@ -481,6 +520,8 @@ print(f"MAE API: {mae_api:.4f}")
 # plt.tight_layout()
 # plt.show()
 
+# Soil Moisture threshold calculations - FC, PWP limits were accessed from below:
+# https://connectedcrops.ca/the-ultimate-guide-to-soil-moisture/
 # Classification - Loamy Sand
 # SM >= FC = 0.16 -> Wet
 # 0.5 * TAW + PWP < SM < FC -> 0.5*0.9 + 0.07 <= SM < 0.16 -> 0.115 <= SM < 0.16 -> Moist
@@ -541,7 +582,7 @@ plt.tight_layout()
 plt.show()
 
 
-# Writing the predictions to map, where each band corresponds to a date
+# Writing the predictions to map, where each band corresponds to a date, uncomment when needed to save the predictions.
 # output_path = "../../Data/SMAP/SMAP_downscaled_appraoch1_smap_test.tif"
 # T, H, W = pred_map.shape
 #
@@ -559,137 +600,28 @@ plt.show()
 
 print("Done")
 ########################################################################################################################
-# print("Starting!")
-# param_grid = {
-#     'hidden_layer_sizes': [(21,), (42,), (21, 21)],
-#     'activation': ['relu'],
-#     'solver': ['adam'],
-#     'alpha': [0.0001, 0.001],
-#     'learning_rate': ['adaptive']
+
+# Grid search for finding best hyperparameters
+# xgb_model = xgb.XGBRegressor(objective='reg:squarederror', random_state=123, n_jobs=-1)
+#
+# params = {
+#     "n_estimators": [100, 150, 200],
+#     "learning_rate": [0.1, 0.01, 0.001],
+#     "max_depth": [3, 5, 7],
+#     "subsample": [0.4, 0.6, 0.8],
+#     'colsample_bytree': [0.6, 0.8, 1.0]
 # }
 #
-#
 # grid_search = GridSearchCV(
-#     MLPRegressor(max_iter=500),
-#     param_grid,
-#     cv=10,
-#     scoring='r2',
+#     estimator=xgb_model,
+#     param_grid=params,
+#     scoring='neg_mean_squared_error',
+#     cv=3,
+#     n_jobs=-1,
 #     verbose=1
 # )
 #
-# grid_search.fit(X_scaled, y_data)
-# best_model = grid_search.best_estimator_
-#
-# print(best_model)
-
-# cv_results_df = pd.DataFrame(grid_search.cv_results_)
-# print(cv_results_df[[
-#     'params',
-#     'mean_test_score',
-#     'std_test_score',
-#     'rank_test_score'
-# ]].sort_values('rank_test_score'))
-#
-#
-# for alpha in cv_results_df['param_alpha'].unique():
-#     subset = cv_results_df[cv_results_df['param_alpha'] == alpha]
-#     plt.plot(subset['param_hidden_layer_sizes'].astype(str), subset['mean_test_score'], label=f'alpha={alpha}')
-#
-# plt.ylabel('Mean R² (CV)')
-# plt.xlabel('Hidden layer sizes')
-# plt.legend()
-# plt.title('Grid Search CV Results')
-# plt.xticks(rotation=45)
-# plt.tight_layout()
-# plt.show()
-
-
-# smap_sm_avg_path = "../../Data/SMAP/SMAP_2016_2022_SoilMoisture_AM_PM_NL_Daily.tif"
-# with rasterio.open(smap_sm_avg_path, 'w', **smap_sm_am_meta) as dst:
-#     dst.write(smap_combined.astype(np.float32))
-# print("Done!")
-
-# original_series = ndvi_data[:, 1, 1]
-# filled_series = ndvi_filled[:, 1, 1]
-#
-# days = np.arange(len(original_series))
-#
-# plt.figure(figsize=(12, 5))
-# plt.plot(days, original_series, label='Original', color='red', linestyle='--', marker='*', markersize=5, alpha=0.6)
-# plt.plot(days, filled_series, label='Filled (last 28 days)', color='blue', marker='o', markersize=3, alpha=0.6)
-#
-# plt.xlabel('Days since 2017-01-01')
-# plt.ylabel('NDVI')
-# plt.title(f'NDVI at Pixel ({1}, {1})')
-# plt.legend()
-# plt.grid(True)
-# plt.tight_layout()
-# plt.show()
-#
-# def resample_to_match(source_array, source_meta, target_meta):
-#     T = source_array.shape[0]
-#     H_target, W_target = target_meta['height'], target_meta['width']
-#     resampled = np.empty((T, H_target, W_target), dtype=np.float32)
-#     for t in range(T):
-#         reproject(
-#             source=source_array[t],
-#             destination=resampled[t],
-#             src_transform=source_meta['transform'],
-#             src_crs=source_meta['crs'],
-#             dst_transform=target_meta['transform'],
-#             dst_crs=target_meta['crs'],
-#             resampling=Resampling.bilinear
-#         )
-#     return resampled
-
-# out_path = "../../Data/StaticVars/SoilTexture_Map_Resampled_10km.tif"
-# H, W = soil_texture_resampled.shape
-# new_meta = smap_sm_am_meta.copy()
-# new_meta.update({
-#     "count":1,
-#     "height":H,
-#     "width":W,
-#     "dtype":"float32"
-# })
-#
-# with rasterio.open(out_path, "w", **new_meta) as src:
-#     src.write(soil_texture_resampled, 1)
-#
-# output_path = "../../Data/VIIRS/VIIRS_NDVI_Day_Resampled_2017_2021_10km.tif"
-# T, H, W = ndvi_resampled.shape
-#
-# new_meta = smap_sm_am_meta.copy()
-# new_meta.update({
-#     "count": T,
-#     "dtype": "float32"
-# })
-#
-# with rasterio.open(output_path, "w", **new_meta) as dst:
-#     for i in range(T):
-#         dst.write(ndvi_resampled[i, :, :], i + 1)
-#
-# print("Done")
-
-
-# ndvi_path = "../../Data/VIIRS/VIIRS_NDVI_Resampled_2017_2021_10km.tif"
-# lst_day_path = "../../Data/VIIRS/VIIRS_LST_Day_Resampled_2017_2021_10km.tif"
-# lst_night_path = "../../Data/VIIRS/VIIRS_LST_Night_Resampled_2017_2021_10km.tif"
-# T, H, W = ndvi_resampled.shape
-#
-# new_meta = smap_sm_am_meta.copy()
-# new_meta.update({
-#     "count": T,
-#     "dtype": "float32"
-# })
-#
-# with rasterio.open(ndvi_path, "w", **new_meta) as dst:
-#     for i in range(T):
-#         dst.write(ndvi_resampled[i, :, :], i + 1)
-#
-# with rasterio.open(lst_day_path, "w", **new_meta) as dst:
-#     for i in range(T):
-#         dst.write(lst_day_resampled[i, :, :], i + 1)
-#
-# with rasterio.open(lst_night_path, "w", **new_meta) as dst:
-#     for i in range(T):
-#         dst.write(lst_night_resampled[i, :, :], i + 1)
+# grid_search.fit(X_scaled, y_data.ravel())
+# model = grid_search.best_estimator_
+# print("Best parameters found: ", grid_search.best_params_)
+# print("Best RMSE (neg): ", grid_search.best_score_)
