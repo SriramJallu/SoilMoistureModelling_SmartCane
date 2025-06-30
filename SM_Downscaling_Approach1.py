@@ -234,8 +234,8 @@ precip_era5_path = "../../Data/ERA5_NL/ERA5_2015_2020_Precip_NL_Daily.tif"
 era5_sm_path = "../../Data/ERA5_NL/ERA5_2015_2020_SM_NL_Daily.tif"
 
 # Path for insitu data and it corresponding lat, lon
-sm_test_path = "../../Data/dataverse_files/1_station_measurements/2_calibrated/ITCSM_10_cd.csv"
-lat, lon = 52.2, 6.65944
+sm_test_path = "../../Data/dataverse_files/1_station_measurements/2_calibrated/ITCSM_18_cd.csv"
+lat, lon = 52.40528, 6.37991
 
 sm_api_path = "../../Data/dataverse_files/Loc_10_API.csv"
 
@@ -344,16 +344,6 @@ y_data = y_data[y_mask]
 scaler = StandardScaler()
 X_scaled = scaler.fit_transform(X_data)
 
-# Training an MLP model, does not give the best results
-# model = tf.keras.models.Sequential([
-#     tf.keras.layers.Dense(128, activation='relu', input_shape=(X_scaled.shape[1],)),
-#     tf.keras.layers.Dense(128, activation='relu'),
-#     tf.keras.layers.Dense(1, activation='relu')
-# ])
-#
-# model.compile(optimizer='adam', loss='mse', metrics=['mae'])
-# model.fit(X_scaled, y_data, epochs=200, batch_size=32, validation_split=0.2)
-
 # Train the model, these are the best hyperparameters after performing a grid search
 model = xgb.XGBRegressor(
     n_estimators=100,
@@ -439,15 +429,17 @@ precip_series = pd.Series(precip_data, index=common_dates_dt)
 era5_series = pd.Series(era5_sm_data, index=common_dates_dt)
 
 # Reading and filtering the insitu data (csv) to match the common_dates of predictions
-headers = pd.read_csv(sm_test_path, skiprows=18, nrows=0).columns.tolist()
-sm_test = pd.read_csv(sm_test_path, skiprows=20, parse_dates=["Date time"], names=headers)
+headers = pd.read_csv(sm_test_path, skiprows=21, nrows=0).columns.tolist()
+sm_test = pd.read_csv(sm_test_path, skiprows=23, parse_dates=["Date time"], names=headers)
 
 sm_test["Date time"] = pd.to_datetime(sm_test["Date time"], format='%d-%m-%Y %H:%M', errors='coerce')
+sm_test.replace(-99.999, np.nan, inplace=True)
 sm_test = sm_test[sm_test["Date time"] >= '2015-01-01']
 sm_test = sm_test[sm_test[" 5 cm SM"] >= 0]
 sm_test = sm_test.set_index("Date time")
 sm_test.index = sm_test.index.normalize()
 sm_test = sm_test.resample("D").mean()
+sm_test = sm_test.interpolate(method="linear")
 sm_test_common = sm_test.loc[common_dates_dt]
 
 
@@ -469,7 +461,7 @@ combined_df = pd.DataFrame({
 
 
 # Filtering out 2020 (Can filter any range) and Validation metrics calculations
-combined_df = combined_df[combined_df.index >= '2015-01-01']
+combined_df = combined_df[combined_df.index >= '2020-01-01']
 combined_df = combined_df.dropna()
 rmse_insitu = mean_squared_error(combined_df["insitu"], combined_df["pred"], squared=False)
 r2_insitu = r2_score(combined_df["insitu"], combined_df["pred"])
@@ -483,42 +475,6 @@ print(f"Bias Insitu: {bias_insitu:.4f}")
 print(f"R² Insitu: {r2_insitu:.4f}")
 print(f"MAE Insitu: {mae_insitu:.4f}")
 
-rmse_era5 = mean_squared_error(combined_df["era5_SM"], combined_df["pred"], squared=False)
-r2_era5 = r2_score(combined_df["era5_SM"], combined_df["pred"])
-bias_ear5 = (combined_df["pred"] - combined_df["era5_SM"]).mean()
-unbiased_rmse_era5 = np.sqrt(rmse_era5**2 - bias_ear5**2)
-mae_era5 = mean_absolute_error(combined_df["era5_SM"], combined_df["pred"])
-
-print(f"RMSE ERA5: {rmse_era5:.4f}")
-print(f"Unbiased RMSE ERA5: {unbiased_rmse_era5:.4f}")
-print(f"Bias ERA5: {bias_ear5:.4f}")
-print(f"R² ERA5: {r2_era5:.4f}")
-print(f"MAE ERA5: {mae_era5:.4f}")
-
-
-rmse_api = mean_squared_error(combined_df["SM_API"], combined_df["pred"], squared=False)
-r2_api = r2_score(combined_df["SM_API"], combined_df["pred"])
-bias_api = (combined_df["pred"] - combined_df["SM_API"]).mean()
-unbiased_rmse_api = np.sqrt(rmse_api**2 - bias_api**2)
-mae_api = mean_absolute_error(combined_df["SM_API"], combined_df["pred"])
-
-print(f"RMSE API: {rmse_api:.4f}")
-print(f"Unbiased RMSE API: {unbiased_rmse_api:.4f}")
-print(f"Bias API: {bias_api:.4f}")
-print(f"R² API: {r2_api:.4f}")
-print(f"MAE API: {mae_api:.4f}")
-
-# Plotting insitu vs predictions
-# plt.figure(figsize=(12, 5))
-# plt.plot(combined_df.index, combined_df["insitu"], label="In-situ SM", linewidth=2)
-# plt.plot(combined_df.index, combined_df["pred"], label="Predicted SM", linewidth=2)
-# plt.xlabel("Date", fontsize=12)
-# plt.ylabel("Soil Moisture", fontsize=12)
-# plt.title("Soil Moisture Predictions vs In-situ Measurements (2020)", fontsize=14)
-# plt.legend()
-# plt.grid(True)
-# plt.tight_layout()
-# plt.show()
 
 # Soil Moisture threshold calculations - FC, PWP limits were accessed from below:
 # https://connectedcrops.ca/the-ultimate-guide-to-soil-moisture/
@@ -531,13 +487,13 @@ combined_df["SM_pred_class"] = np.where(combined_df["pred"] >= 0.225, "Wet", np.
 combined_df["SM_insitu_class"] = np.where(combined_df["insitu"] >= 0.225, "Wet", np.where((combined_df["insitu"] >= 0.125) & (combined_df["insitu"] < 0.225), "Moist", "Dry"))
 
 accuracy = accuracy_score(combined_df["SM_pred_class"], combined_df["SM_insitu_class"])
-classification_report = classification_report(combined_df["SM_insitu_class"], combined_df["SM_pred_class"])
+class_report = classification_report(combined_df["SM_insitu_class"], combined_df["SM_pred_class"])
 conf_mat = confusion_matrix(combined_df["SM_insitu_class"], combined_df["SM_pred_class"], labels=["Wet", "Moist", "Dry"])
 conf_df = pd.DataFrame(conf_mat, index=["True_Wet", "True_Moist", "True_Dry"], columns=["Pred_Wet", "Pred_Moist", "Pred_Dry"])
 
 print("Accuracy: ", accuracy)
 print("Classification Report")
-print(classification_report)
+print(class_report)
 print("Confusion Matrix")
 print(conf_df)
 
@@ -564,11 +520,11 @@ fig, axes = plt.subplots(nrows=2, ncols=1, figsize=(12, 8))
 
 axes[0].plot(combined_df.index, combined_df["insitu"], label="In-situ SM", linewidth=2)
 axes[0].plot(combined_df.index, combined_df["pred"], label="Predicted SM", linewidth=2)
-axes[0].plot(combined_df.index, combined_df["era5_SM"], label="ERA5 SM", linewidth=2)
-axes[0].plot(combined_df.index, combined_df["SM_API"], label="API SM", linewidth=2)
+# axes[0].plot(combined_df.index, combined_df["era5_SM"], label="ERA5 SM", linewidth=2)
+# axes[0].plot(combined_df.index, combined_df["SM_API"], label="API SM", linewidth=2)
 # axes[0].plot(combined_df.index, combined_df["ndvi"], label="NDVI", linewidth=2)
-axes[0].set_ylabel("Soil Moisture", fontsize=12)
-axes[0].set_title("Soil Moisture Predictions vs In-situ Measurements (2020)", fontsize=14)
+axes[0].set_ylabel("Soil Moisture (m\u00b3/m\u00b3)", fontsize=12)
+axes[0].set_title("Downscaled Soil Moisture vs In-situ Measurements (2020)", fontsize=14)
 axes[0].legend()
 axes[0].grid(True)
 
@@ -625,3 +581,38 @@ print("Done")
 # model = grid_search.best_estimator_
 # print("Best parameters found: ", grid_search.best_params_)
 # print("Best RMSE (neg): ", grid_search.best_score_)
+
+# Training an MLP model, does not give the best results
+# model = tf.keras.models.Sequential([
+#     tf.keras.layers.Dense(128, activation='relu', input_shape=(X_scaled.shape[1],)),
+#     tf.keras.layers.Dense(128, activation='relu'),
+#     tf.keras.layers.Dense(1, activation='relu')
+# ])
+#
+# model.compile(optimizer='adam', loss='mse', metrics=['mae'])
+# model.fit(X_scaled, y_data, epochs=200, batch_size=32, validation_split=0.2)
+
+# rmse_era5 = mean_squared_error(combined_df["era5_SM"], combined_df["pred"], squared=False)
+# r2_era5 = r2_score(combined_df["era5_SM"], combined_df["pred"])
+# bias_ear5 = (combined_df["pred"] - combined_df["era5_SM"]).mean()
+# unbiased_rmse_era5 = np.sqrt(rmse_era5**2 - bias_ear5**2)
+# mae_era5 = mean_absolute_error(combined_df["era5_SM"], combined_df["pred"])
+#
+# print(f"RMSE ERA5: {rmse_era5:.4f}")
+# print(f"Unbiased RMSE ERA5: {unbiased_rmse_era5:.4f}")
+# print(f"Bias ERA5: {bias_ear5:.4f}")
+# print(f"R² ERA5: {r2_era5:.4f}")
+# print(f"MAE ERA5: {mae_era5:.4f}")
+#
+#
+# rmse_api = mean_squared_error(combined_df["SM_API"], combined_df["pred"], squared=False)
+# r2_api = r2_score(combined_df["SM_API"], combined_df["pred"])
+# bias_api = (combined_df["pred"] - combined_df["SM_API"]).mean()
+# unbiased_rmse_api = np.sqrt(rmse_api**2 - bias_api**2)
+# mae_api = mean_absolute_error(combined_df["SM_API"], combined_df["pred"])
+#
+# print(f"RMSE API: {rmse_api:.4f}")
+# print(f"Unbiased RMSE API: {unbiased_rmse_api:.4f}")
+# print(f"Bias API: {bias_api:.4f}")
+# print(f"R² API: {r2_api:.4f}")
+# print(f"MAE API: {mae_api:.4f}")

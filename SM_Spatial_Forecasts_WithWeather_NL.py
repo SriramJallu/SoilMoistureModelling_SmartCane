@@ -7,7 +7,9 @@ import random
 from pyproj import Transformer
 from sklearn.preprocessing import MinMaxScaler
 import tensorflow as tf
-from sklearn.metrics import r2_score, mean_squared_error
+from sklearn.metrics import r2_score, mean_squared_error, accuracy_score, classification_report
+import keras_tuner as kt
+from datetime import datetime, timedelta
 
 np.random.seed(123)
 random.seed(123)
@@ -200,6 +202,46 @@ def filter_by_dates(data, bands, suffix, common_dates):
     return data[filtered_indices], filtered_band_names
 
 
+def dl_model(hp):
+    model = tf.keras.Sequential()
+    model.add(tf.keras.layers.Input(shape=(X_train.shape[1], X_train.shape[2])))
+
+    num_conv_layers = hp.Int('num_conv_layers', 0, 2)
+    for i in range(num_conv_layers):
+        model.add(tf.keras.layers.Conv1D(
+            filters=hp.Int(f'conv_filters_{i}', min_value=32, max_value=128, step=32),
+            kernel_size=3,
+            activation='relu',
+            padding='same'
+        ))
+
+    num_lstm_layers = hp.Int('num_lstm_layers', 1, 3)
+    for j in range(num_lstm_layers):
+        return_seq = j < num_lstm_layers - 1
+        model.add(tf.keras.layers.LSTM(
+            units=hp.Int(f'lstm_units_{j}', min_value=32, max_value=128, step=32),
+            activation='relu',
+            return_sequences=return_seq
+        ))
+        model.add(tf.keras.layers.Dropout(hp.Float(f'dropout_{j}', 0.1, 0.5, step=0.1)))
+
+    model.add(tf.keras.layers.Dense(
+        units=hp.Int('dense_units', min_value=32, max_value=128, step=32),
+        activation='relu'
+    ))
+
+    model.add(tf.keras.layers.Dense(forecast_days))
+
+    model.compile(
+        optimizer=tf.keras.optimizers.Adam(
+            learning_rate=hp.Choice('lr', [1e-04, 5e-04, 1e-03])
+        ),
+        loss='mse'
+    )
+
+    return model
+
+
 # List of paths for weather variables
 era5_train_paths = [
     "../../Data/ERA5_NL/ERA5_2015_2020_Precip_NL_Daily.tif",
@@ -321,10 +363,10 @@ X_test, y_test, pixel_indices_test = create_sequences(sm_transform, sm_test_scal
 # Build a sequential architecture.
 # model = tf.keras.Sequential([
 #     tf.keras.layers.Input(shape=(past_days, X_train.shape[-1])),
-#     # tf.keras.layers.Conv1D(32, kernel_size=3, activation='relu', padding='same'),
+#     tf.keras.layers.Conv1D(32, kernel_size=3, activation='relu', padding='same'),
 #     tf.keras.layers.Conv1D(64, kernel_size=3, activation='relu', padding='same'),
-#     # tf.keras.layers.LSTM(64, activation='relu', return_sequences=True),
-#     tf.keras.layers.LSTM(64, activation='relu'),
+#     tf.keras.layers.LSTM(128, activation='relu', return_sequences=True),
+#     tf.keras.layers.LSTM(128, activation='relu'),
 #     tf.keras.layers.Dense(64, activation='relu'),
 #     tf.keras.layers.Dense(forecast_days)
 # ])
@@ -333,10 +375,36 @@ X_test, y_test, pixel_indices_test = create_sequences(sm_transform, sm_test_scal
 # model.fit(X_train, y_train, epochs=1, batch_size=32, validation_split=0.2)
 #
 # # Save the model
-# model_name = f"sm_smap_weather_downscaled_conv_lstm_{datetime.now().strftime('%Y%m%d_%H%M%S')}.h5"
+# model_name = f"sm_smap_weather_downscaled_x2_conv_lstm_{datetime.now().strftime('%Y%m%d_%H%M%S')}.h5"
 # model.save(f"../../Models/{model_name}")
+# model = tf.keras.models.load_model("../../Models/sm_smap_weather_downscaled_x2_conv_lstm_20250620_113349.h5")
 
-model = tf.keras.models.load_model("../../Models/sm_smap_weather_downscaled_conv_lstm_20250618_120259.h5")
+
+# Random Search for tuning hyperparameters and the architecture of the DL model.
+# tuner = kt.RandomSearch(
+#     dl_model,
+#     objective='val_loss',
+#     max_trials=5,
+#     executions_per_trial=1,
+#     directory="../../Logs/Tuner_logs",
+#     project_name="../../Logs/Conv_LSTM"
+# )
+#
+# tuner.search(X_train, y_train,
+#              epochs=1,
+#              batch_size=32,
+#              validation_split=0.2,
+#              verbose=1)
+#
+# model = tuner.get_best_models(1)[0]
+# model_name = f"sm_smap_weather_downscaled_tuned_conv_lstm_{datetime.now().strftime('%Y%m%d_%H%M%S')}.h5"
+# model.save(f"../../Models/{model_name}")
+model = tf.keras.models.load_model("../../Models/sm_smap_weather_downscaled_tuned_conv_lstm_20250629_012833.h5")
+
+model.summary()
+for i, layer in enumerate(model.layers):
+    print(f"\nLayer {i}: {layer.name} ({layer.__class__.__name__})")
+    print(layer.get_config())
 
 # Predict on test dataset and inverse transform the predictions to original scale.
 y_preds = model.predict(X_test)
@@ -348,9 +416,11 @@ headers = pd.read_csv(sm_test_path, skiprows=18, nrows=0).columns.tolist()
 sm_test = pd.read_csv(sm_test_path, skiprows=20, parse_dates=["Date time"], names=headers)
 
 sm_test["Date time"] = pd.to_datetime(sm_test["Date time"], format='%d-%m-%Y %H:%M', errors='coerce')
+sm_test.replace(-99.999, np.nan, inplace=True)
 sm_test = sm_test[sm_test["Date time"] >= '2020-01-01']
 sm_test = sm_test.set_index("Date time")
 sm_test = sm_test.resample("D").mean()
+sm_test = sm_test.interpolate(method="linear")
 sm_test_insitu = create_seq(sm_test[" 5 cm SM"], 30, 7)
 
 # Get the pixel index in the SM grid, corresponding to the location (lat, lon) of insitu data.
@@ -374,6 +444,19 @@ for day in range(forecast_days):
     rmse = np.sqrt(mean_squared_error(true_series, pred_series))
     r2 = r2_score(true_series, pred_series)
     print(f"Pixel {target_pixel}, Day {day + 1} — RMSE: {rmse:.4f}, R²: {r2:.4f}")
+
+for day in range(forecast_days):
+    true_series = sm_test_insitu[:, day]
+    # true_series = y_test_inv[matching_indices, day]
+    pred_series = y_preds_inv[matching_indices, day]
+    true_series_class = np.where(true_series >= 0.225, "Wet",
+        np.where((true_series >= 0.125) & (true_series < 0.225), "Moist", "Dry"))
+    pred_series_class = np.where(pred_series >= 0.225, "Wet", np.where(
+        (pred_series >= 0.125) & (pred_series < 0.225), "Moist", "Dry"))
+    accuracy = accuracy_score(true_series_class, pred_series_class)
+    class_report = classification_report(true_series_class, pred_series_class)
+    print(f"Class Accuracy: {accuracy:.4f}")
+    print(class_report)
 
 # Plot the 3 days' predictions vs ture values.
 fig, axs = plt.subplots(3, 1, figsize=(14, 10), sharex="all")

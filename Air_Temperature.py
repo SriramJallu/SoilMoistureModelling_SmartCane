@@ -214,128 +214,128 @@ tf.random.set_seed(123)
 
 ### Temperature Forecasting
 
-era5_train_data, era5_train_dates, era5_train_transform, era5_train_crs, era5_train_bounds = read_tif(era5_train)
-era5_test_data, era5_test_dates, era5_test_transform, era5_test_crs, era5_test_bounds = read_tif(era5_test)
-
-era5_train_row, era5_train_col = get_pixels_values(pt_lat, pt_lon, era5_train_transform)
-era5_train_temp = era5_train_data[:, era5_train_row, era5_train_col]
-
-era5_test_row, era5_test_col = get_pixels_values(pt_lat, pt_lon, era5_test_transform)
-era5_test_temp = era5_test_data[:, era5_test_row, era5_test_col]
-
-train_dates = pd.date_range(start="2015-01-01", end="2022-12-31", freq="D")
-test_dates = pd.date_range(start="2023-01-01", end="2024-12-31", freq="D")
-
-temp_train_df = pd.DataFrame({
-    "Date" : train_dates,
-    "ERA5" : era5_train_temp
-})
-
-temp_test_df = pd.DataFrame({
-    "Date" : test_dates,
-    "ERA5" : era5_test_temp
-})
-
-temp_train_df = temp_train_df.dropna(subset=["ERA5"])
-data = temp_train_df["ERA5"].values.reshape(-1, 1)
-
-scaler = MinMaxScaler()
-scaled_data = scaler.fit_transform(data)
-
-
-def create_sequences(data, input_len=30, output_len=7):
-    X, y = [], []
-    for i in range(len(data) - input_len - output_len + 1):
-        X.append(data[i:i+input_len])
-        y.append(data[i+input_len:i+input_len+output_len].flatten())
-    return np.array(X), np.array(y)
-
-
-X, y = create_sequences(scaled_data, input_len=30, output_len=7)
-
-model = tf.keras.Sequential([
-    tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(128, return_sequences=True, input_shape=(30, 1))),
-    tf.keras.layers.Dropout(0.3),
-    tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(128)),
-    tf.keras.layers.Dropout(0.3),
-    tf.keras.layers.Dense(128, activation='relu'),
-    tf.keras.layers.Dense(7)
-])
-
-model.compile(optimizer='adam', loss='mse')
-model.fit(X, y, epochs=50, batch_size=32, validation_split=0.2)
-
-
-def monte_carlo_predict(model, X, num_samples=100):
-    predictions = np.zeros((num_samples, X.shape[0], 7))
-    for i in range(num_samples):
-        predictions[i] = model(X, training=True)
-    return predictions
-
-
-last_30 = scaled_data[-30:].reshape(1, 30, 1)
-predictions_mc = monte_carlo_predict(model, last_30, num_samples=200)
+# era5_train_data, era5_train_dates, era5_train_transform, era5_train_crs, era5_train_bounds = read_tif(era5_train)
+# era5_test_data, era5_test_dates, era5_test_transform, era5_test_crs, era5_test_bounds = read_tif(era5_test)
+#
+# era5_train_row, era5_train_col = get_pixels_values(pt_lat, pt_lon, era5_train_transform)
+# era5_train_temp = era5_train_data[:, era5_train_row, era5_train_col]
+#
+# era5_test_row, era5_test_col = get_pixels_values(pt_lat, pt_lon, era5_test_transform)
+# era5_test_temp = era5_test_data[:, era5_test_row, era5_test_col]
+#
+# train_dates = pd.date_range(start="2015-01-01", end="2022-12-31", freq="D")
+# test_dates = pd.date_range(start="2023-01-01", end="2024-12-31", freq="D")
+#
+# temp_train_df = pd.DataFrame({
+#     "Date" : train_dates,
+#     "ERA5" : era5_train_temp
+# })
+#
+# temp_test_df = pd.DataFrame({
+#     "Date" : test_dates,
+#     "ERA5" : era5_test_temp
+# })
+#
+# temp_train_df = temp_train_df.dropna(subset=["ERA5"])
+# data = temp_train_df["ERA5"].values.reshape(-1, 1)
+#
+# scaler = MinMaxScaler()
+# scaled_data = scaler.fit_transform(data)
+#
+#
+# def create_sequences(data, input_len=30, output_len=7):
+#     X, y = [], []
+#     for i in range(len(data) - input_len - output_len + 1):
+#         X.append(data[i:i+input_len])
+#         y.append(data[i+input_len:i+input_len+output_len].flatten())
+#     return np.array(X), np.array(y)
+#
+#
+# X, y = create_sequences(scaled_data, input_len=30, output_len=7)
+#
+# model = tf.keras.Sequential([
+#     tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(128, return_sequences=True, input_shape=(30, 1))),
+#     tf.keras.layers.Dropout(0.3),
+#     tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(128)),
+#     tf.keras.layers.Dropout(0.3),
+#     tf.keras.layers.Dense(128, activation='relu'),
+#     tf.keras.layers.Dense(7)
+# ])
+#
+# model.compile(optimizer='adam', loss='mse')
+# model.fit(X, y, epochs=50, batch_size=32, validation_split=0.2)
+#
+#
+# def monte_carlo_predict(model, X, num_samples=100):
+#     predictions = np.zeros((num_samples, X.shape[0], 7))
+#     for i in range(num_samples):
+#         predictions[i] = model(X, training=True)
+#     return predictions
+#
 #
 # last_30 = scaled_data[-30:].reshape(1, 30, 1)
-# forecast_scaled = model.predict(last_30)
-# forecast = scaler.inverse_transform(forecast_scaled)[0]
-
-mean_preds = np.mean(predictions_mc, axis=0)
-lower_bound = np.percentile(predictions_mc, 2.5, axis=0)
-upper_bound = np.percentile(predictions_mc, 97.5, axis=0)
-
-mean_preds = scaler.inverse_transform(mean_preds)[0]
-lower_bound = scaler.inverse_transform(lower_bound)[0]
-upper_bound = scaler.inverse_transform(upper_bound)[0]
-
-print(f"Predicted Temperature (Mean): {mean_preds}")
-print(f"Lower Bound (2.5%): {lower_bound}")
-print(f"Upper Bound (97.5%): {upper_bound}")
-
-
-temp_test_df["Date"] = pd.to_datetime(temp_test_df["Date"])
-precip_test_df = temp_test_df.dropna(subset=["ERA5"])
-test_series = precip_test_df["ERA5"].values.reshape(-1, 1)
-test_scaled = scaler.transform(test_series)
-
-X_test, y_test = create_sequences(test_scaled, input_len=30, output_len=7)
-
-predictions_mc_test = monte_carlo_predict(model, X_test, num_samples=100)
-
-mean_preds_test = np.mean(predictions_mc_test, axis=0)
-lower_bound_test = np.percentile(predictions_mc_test, 2.5, axis=0)
-upper_bound_test = np.percentile(predictions_mc_test, 97.5, axis=0)
-
-mean_preds_test = scaler.inverse_transform(mean_preds_test)
-lower_bound_test = scaler.inverse_transform(lower_bound_test)
-upper_bound_test = scaler.inverse_transform(upper_bound_test)
-# y_pred_scaled = model.predict(X_test)
-# y_pred = scaler.inverse_transform(y_pred_scaled)
-y_true = scaler.inverse_transform(y_test)
-
-for i in range(7):
-    r2 = r2_score(y_true[:, i], mean_preds_test[:, i])
-    rmse = np.sqrt(mean_squared_error(y_true[:, i], mean_preds_test[:, i]))
-    print(f"Day {i+1} - R²: {r2:.4f}, RMSE: {rmse:.4f}")
-
-fig, axs = plt.subplots(3, 1, figsize=(14, 10), sharex="all")
-
-for i in range(3):
-    axs[i].plot(y_true[:, i], label="Actual", color="black")
-    axs[i].plot(mean_preds_test[:, i], label="Predicted (Mean)", color="green")
-    axs[i].fill_between(
-        np.arange(len(mean_preds_test)),
-        lower_bound_test[:, i],
-        upper_bound_test[:, i],
-        color="gray",
-        alpha=0.5,
-        label="95% CI"
-    )
-    axs[i].set_title(f"ERA5 Temperature Prediction - Day {i+1}")
-    axs[i].set_ylabel("Temperature")
-    axs[i].legend()
-    axs[i].grid(True)
-
-axs[-1].set_xlabel("Time step")
-plt.tight_layout()
-plt.show()
+# predictions_mc = monte_carlo_predict(model, last_30, num_samples=200)
+# #
+# # last_30 = scaled_data[-30:].reshape(1, 30, 1)
+# # forecast_scaled = model.predict(last_30)
+# # forecast = scaler.inverse_transform(forecast_scaled)[0]
+#
+# mean_preds = np.mean(predictions_mc, axis=0)
+# lower_bound = np.percentile(predictions_mc, 2.5, axis=0)
+# upper_bound = np.percentile(predictions_mc, 97.5, axis=0)
+#
+# mean_preds = scaler.inverse_transform(mean_preds)[0]
+# lower_bound = scaler.inverse_transform(lower_bound)[0]
+# upper_bound = scaler.inverse_transform(upper_bound)[0]
+#
+# print(f"Predicted Temperature (Mean): {mean_preds}")
+# print(f"Lower Bound (2.5%): {lower_bound}")
+# print(f"Upper Bound (97.5%): {upper_bound}")
+#
+#
+# temp_test_df["Date"] = pd.to_datetime(temp_test_df["Date"])
+# precip_test_df = temp_test_df.dropna(subset=["ERA5"])
+# test_series = precip_test_df["ERA5"].values.reshape(-1, 1)
+# test_scaled = scaler.transform(test_series)
+#
+# X_test, y_test = create_sequences(test_scaled, input_len=30, output_len=7)
+#
+# predictions_mc_test = monte_carlo_predict(model, X_test, num_samples=100)
+#
+# mean_preds_test = np.mean(predictions_mc_test, axis=0)
+# lower_bound_test = np.percentile(predictions_mc_test, 2.5, axis=0)
+# upper_bound_test = np.percentile(predictions_mc_test, 97.5, axis=0)
+#
+# mean_preds_test = scaler.inverse_transform(mean_preds_test)
+# lower_bound_test = scaler.inverse_transform(lower_bound_test)
+# upper_bound_test = scaler.inverse_transform(upper_bound_test)
+# # y_pred_scaled = model.predict(X_test)
+# # y_pred = scaler.inverse_transform(y_pred_scaled)
+# y_true = scaler.inverse_transform(y_test)
+#
+# for i in range(7):
+#     r2 = r2_score(y_true[:, i], mean_preds_test[:, i])
+#     rmse = np.sqrt(mean_squared_error(y_true[:, i], mean_preds_test[:, i]))
+#     print(f"Day {i+1} - R²: {r2:.4f}, RMSE: {rmse:.4f}")
+#
+# fig, axs = plt.subplots(3, 1, figsize=(14, 10), sharex="all")
+#
+# for i in range(3):
+#     axs[i].plot(y_true[:, i], label="Actual", color="black")
+#     axs[i].plot(mean_preds_test[:, i], label="Predicted (Mean)", color="green")
+#     axs[i].fill_between(
+#         np.arange(len(mean_preds_test)),
+#         lower_bound_test[:, i],
+#         upper_bound_test[:, i],
+#         color="gray",
+#         alpha=0.5,
+#         label="95% CI"
+#     )
+#     axs[i].set_title(f"ERA5 Temperature Prediction - Day {i+1}")
+#     axs[i].set_ylabel("Temperature")
+#     axs[i].legend()
+#     axs[i].grid(True)
+#
+# axs[-1].set_xlabel("Time step")
+# plt.tight_layout()
+# plt.show()
