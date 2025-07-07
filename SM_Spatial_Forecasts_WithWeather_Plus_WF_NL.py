@@ -427,13 +427,13 @@ X_test_past, X_test_future, y_test, pixel_indices_test = create_sequences(sm_tra
 # input_past = tf.keras.layers.Input(shape=(past_days, X_train_past.shape[-1]))
 # input_future = tf.keras.layers.Input(shape=(forecast_days, X_train_future.shape[-1]))
 #
-# model_past = tf.keras.layers.Conv1D(32, kernel_size=3, activation='relu', padding='same')(input_past)
+# model_past = tf.keras.layers.Conv1D(64, kernel_size=3, activation='relu', padding='same')(input_past)
 # model_past = tf.keras.layers.Conv1D(32, kernel_size=3, activation='relu', padding='same')(model_past)
 # model_past = tf.keras.layers.LSTM(128, activation='relu', return_sequences=True)(model_past)
 # model_past = tf.keras.layers.LSTM(128, activation='relu')(model_past)
 #
-# model_future = tf.keras.layers.LSTM(64, activation='relu', return_sequences=True)(input_future)
-# model_future = tf.keras.layers.LSTM(32, activation='relu')(model_future)
+# model_future = tf.keras.layers.LSTM(128, activation='relu', return_sequences=True)(input_future)
+# model_future = tf.keras.layers.LSTM(128, activation='relu')(model_future)
 #
 # model_dense = tf.keras.layers.Concatenate()([model_past, model_future])
 # model_dense = tf.keras.layers.Dense(64, activation='relu')(model_dense)
@@ -446,7 +446,7 @@ X_test_past, X_test_future, y_test, pixel_indices_test = create_sequences(sm_tra
 # model_name = f"sm_smap_weather_weatherforecast_downscaled_x2_conv_lstm_{datetime.now().strftime('%Y%m%d_%H%M%S')}.h5"
 # model.save(f"../../Models/{model_name}")
 model = tf.keras.models.load_model(
-    "../../Models/sm_smap_weather_weatherforecast_downscaled_x2_conv_lstm_20250701_115319.h5")
+    "../../Models/sm_smap_weather_weatherforecast_downscaled_x2_conv_lstm_20250702_094339.h5")
 
 # Predict on test dataset and inverse transform the predictions to original scale.
 y_preds = model.predict([X_test_past, X_test_future])

@@ -16,7 +16,7 @@ def read_tif(tif):
     return data, meta, bands
 
 
-et_path = "../../Data/MODIS/MODIS_ET_Daily_2015_2020_Chemba.tif"
+et_path = "../../Data/Chemba_Buffer/MODIS_ET_Daily_2015_2020_Chemba_Buffer.tif"
 
 et_data, et_meta, et_bands = read_tif(et_path)
 print(et_data.shape)
@@ -59,7 +59,7 @@ print(et_meta)
 #     "dtype": "float32"
 # })
 #
-# output_path = "../../Data/MODIS/MODIS_ET_Daily_2015_2020_Chemba.tif"
+# output_path = "../../Data/Chemba_Buffer/MODIS_ET_Daily_2015_2020_Chemba_Buffer.tif"
 #
 # with rasterio.open(output_path, "w", **multiband_meta) as dst:
 #     for i in range(len(sorted_dates)):

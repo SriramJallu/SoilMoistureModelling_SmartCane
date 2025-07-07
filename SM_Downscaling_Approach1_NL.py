@@ -13,6 +13,7 @@ from scipy.signal import savgol_filter
 from pyproj import Transformer
 from rasterio.transform import rowcol
 import xgboost as xgb
+from datetime import datetime
 
 np.random.seed(123)
 random.seed(123)
@@ -234,8 +235,8 @@ precip_era5_path = "../../Data/ERA5_NL/ERA5_2015_2020_Precip_NL_Daily.tif"
 era5_sm_path = "../../Data/ERA5_NL/ERA5_2015_2020_SM_NL_Daily.tif"
 
 # Path for insitu data and it corresponding lat, lon
-sm_test_path = "../../Data/dataverse_files/1_station_measurements/2_calibrated/ITCSM_18_cd.csv"
-lat, lon = 52.40528, 6.37991
+sm_test_path = "../../Data/dataverse_files/1_station_measurements/2_calibrated/ITCSM_08_cd.csv"
+lat, lon = 52.13583, 6.745
 
 sm_api_path = "../../Data/dataverse_files/Loc_10_API.csv"
 
@@ -355,6 +356,7 @@ model = xgb.XGBRegressor(
     n_jobs=-1
 )
 model.fit(X_scaled, y_data.ravel())
+model.save_model("../../Models/SM_Downscaling_Model_Approach1_NL.json")
 
 # Feature Importance
 feature_names = ["NDVI", "LST Day", "LST Night", "ET", "Precip", "DEM", "Slope", "Soil Texture"]
@@ -429,8 +431,8 @@ precip_series = pd.Series(precip_data, index=common_dates_dt)
 era5_series = pd.Series(era5_sm_data, index=common_dates_dt)
 
 # Reading and filtering the insitu data (csv) to match the common_dates of predictions
-headers = pd.read_csv(sm_test_path, skiprows=21, nrows=0).columns.tolist()
-sm_test = pd.read_csv(sm_test_path, skiprows=23, parse_dates=["Date time"], names=headers)
+headers = pd.read_csv(sm_test_path, skiprows=18, nrows=0).columns.tolist()
+sm_test = pd.read_csv(sm_test_path, skiprows=20, parse_dates=["Date time"], names=headers)
 
 sm_test["Date time"] = pd.to_datetime(sm_test["Date time"], format='%d-%m-%Y %H:%M', errors='coerce')
 sm_test.replace(-99.999, np.nan, inplace=True)
@@ -483,6 +485,7 @@ print(f"MAE Insitu: {mae_insitu:.4f}")
 # 0.5 * TAW + PWP < SM < FC -> 0.5*0.9 + 0.07 <= SM < 0.16 -> 0.115 <= SM < 0.16 -> Moist
 # SM <= 0.115 -> Dry
 
+# Sandy Loam Classification
 combined_df["SM_pred_class"] = np.where(combined_df["pred"] >= 0.225, "Wet", np.where((combined_df["pred"] >= 0.125) & (combined_df["pred"] < 0.225), "Moist", "Dry"))
 combined_df["SM_insitu_class"] = np.where(combined_df["insitu"] >= 0.225, "Wet", np.where((combined_df["insitu"] >= 0.125) & (combined_df["insitu"] < 0.225), "Moist", "Dry"))
 
