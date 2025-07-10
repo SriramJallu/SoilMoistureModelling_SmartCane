@@ -6,8 +6,9 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error
 import itertools
 
 
-era5 = "../../Data/ERA5/ERA5_2021_2022_RH_Daily.tif"
-cfs = "../../Data/CFSV2/CFSV2_2021_2022_RH_Daily.tif"
+era5 = "../../Data/ERA5/ERA5_2021_2022_RH_Daily_Transmara_Kenya.tif"
+gldas = "../../Data/GLDAS/GLDAS_2021_2022_RH_Daily_Transmara_Kenya.tif"
+cfs = "../../Data/CFSV2/CFSV2_2021_2022_RH_Daily_Transmara_Kenya.tif"
 
 
 def read_tif(filename):
@@ -18,10 +19,12 @@ def read_tif(filename):
 
 
 era5_data, era5_dates, era5_transform, era5_crs, era5_bounds = read_tif(era5)
+gldas_data, gldas_dates, gldas_transform, gldas_crs, gldas_bounds = read_tif(gldas)
 cfs_data, cfs_dates, cfs_transform, cfs_crs, cfs_bounds = read_tif(cfs)
 
 
 print(f"ERA5 data shape: {era5_data.shape}")
+print(f"GLDAS data shape: {gldas_data.shape}")
 print(f"CFS data shape: {cfs_data.shape}")
 
 
@@ -30,13 +33,16 @@ def get_pixels_values(lat, lon, transform):
     return int(row), int(col)
 
 # Chemba
-pt_lat, pt_lon = -17.331524, 34.954147
+# pt_lat, pt_lon = -17.331524, 34.954147
 
 # Transmara, Kenya
-# pt_lat, pt_lon = -1.023509, 34.740671
+pt_lat, pt_lon = -1.023509, 34.740671
 
 era5_row, era5_col = get_pixels_values(pt_lat, pt_lon, era5_transform)
 era5_rh = era5_data[:, era5_row, era5_col]
+
+gldas_row, gldas_col = get_pixels_values(pt_lat, pt_lon, gldas_transform)
+gldas_rh = gldas_data[:, gldas_row, gldas_col]
 
 cfs_row, cfs_col = get_pixels_values(pt_lat, pt_lon, cfs_transform)
 cfs_rh = cfs_data[:, cfs_row, cfs_col]
@@ -47,11 +53,12 @@ dates = pd.date_range(start="2021-01-01", end="2022-12-31", freq="D")
 rh_df = pd.DataFrame({
     "Date" : dates,
     "ERA5" : era5_rh,
+    "GLDAS": gldas_rh,
     "CFS" : cfs_rh
 })
 
 
-df = pd.read_csv("../../Data/Chemba_loc1_OpenMeteo_API_01012019_30122024_Daily.csv", skiprows=3)
+df = pd.read_csv("../../Data/Transmara_Kenya_OpenMeteo_API_01012019_30122024_Daily.csv", skiprows=3)
 df["time"] = pd.to_datetime(df["time"])
 
 openmeteo = df[df["time"].dt.year.isin([2021, 2022])].copy()
@@ -59,7 +66,7 @@ openmeteo = df[df["time"].dt.year.isin([2021, 2022])].copy()
 openmeteo.rename(columns={"relative_humidity_2m_mean (%)": "OpenMeteo"}, inplace=True)
 rh_df["OpenMeteo"] = openmeteo["OpenMeteo"].values
 
-vc_daily = pd.read_csv("../../Data/Chemba_loc1_VisualCrossing_01012021_31122022_Daily.csv")
+vc_daily = pd.read_csv("../../Data/Transmara_Kenya_VisualCrossing_API_01012021_30122022_Daily.csv")
 vc_daily = vc_daily.drop(columns="name")
 vc_daily["datetime"] = pd.to_datetime(vc_daily["datetime"])
 
@@ -82,7 +89,7 @@ print("#######################")
 print("R2 Daily\n", r2_mat)
 print("#######################")
 
-products = ['ERA5', 'CFS', 'OpenMeteo', 'VisualCrossing']
+products = ['ERA5', 'GLDAS', 'CFS', 'OpenMeteo', 'VisualCrossing']
 rmse_df = pd.DataFrame(index=products, columns=products)
 mae_df = pd.DataFrame(index=products, columns=products)
 
@@ -103,6 +110,7 @@ print("#######################")
 
 plt.figure(figsize=(14, 8))
 plt.plot(rh_df["Date"], rh_df["ERA5"], label="ERA5", linewidth=1.5)
+plt.plot(rh_df["Date"], rh_df["GLDAS"], label="GLDAS", linewidth=1.5)
 plt.plot(rh_df["Date"], rh_df["CFS"], label="CFS", linewidth=1.5)
 plt.plot(rh_df["Date"], rh_df["OpenMeteo"], label="OpenMeteo", linewidth=1.5)
 plt.plot(rh_df["Date"], rh_df["VisualCrossing"], label="VisualCrossing", linewidth=1.5)
@@ -151,6 +159,7 @@ print("#######################")
 
 plt.figure(figsize=(14, 8))
 plt.plot(rh_df_7d["Date"], rh_df_7d["ERA5"], label="ERA5", linewidth=1.5)
+plt.plot(rh_df_7d["Date"], rh_df_7d["GLDAS"], label="GLDAS", linewidth=1.5)
 plt.plot(rh_df_7d["Date"], rh_df_7d["CFS"], label="CFS", linewidth=1.5)
 plt.plot(rh_df_7d["Date"], rh_df_7d["OpenMeteo"], label="OpenMeteo", linewidth=1.5)
 plt.plot(rh_df_7d["Date"], rh_df_7d["VisualCrossing"], label="VisualCrossing", linewidth=1.5)
@@ -191,6 +200,7 @@ print("#######################")
 
 plt.figure(figsize=(14, 8))
 plt.plot(rh_df_14d["Date"], rh_df_14d["ERA5"], label="ERA5", linewidth=1.5)
+plt.plot(rh_df_14d["Date"], rh_df_14d["GLDAS"], label="GLDAS", linewidth=1.5)
 plt.plot(rh_df_14d["Date"], rh_df_14d["CFS"], label="CFS", linewidth=1.5)
 plt.plot(rh_df_14d["Date"], rh_df_14d["OpenMeteo"], label="OpenMeteo", linewidth=1.5)
 plt.plot(rh_df_14d["Date"], rh_df_14d["VisualCrossing"], label="VisualCrossing", linewidth=1.5)

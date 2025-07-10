@@ -66,36 +66,7 @@ def map_10km_to_1km(r1km, c1km, sm_transform, weather_transform):
     return r10km, c10km
 
 
-def map_20km_to_1km(r1km, c1km, sm_transform, weather_forecast_transform):
-    """
-    This function is used as a helper function to map the 1km soil moisture cell (row, col) to the corresponding 10km
-    weather pixels.
-
-    Parameters
-    ----------
-    r1km : int
-        row index of the pixel in 1km soil moisture grid.
-    c1km : int
-        column index of the pixel in 1km soil moisture grid.
-    sm_transform : Affine
-        Affine transformation for the 1km soil moisture raster.
-    weather_transform : Affine
-        Affine transformation for the 10km weather raster.
-
-    Returns
-    -------
-    r10km : int
-        row index of the pixel in 10km weather grid.
-    c10km : int
-        column index of the pixel in 10km weather grid.
-    """
-    x, y = xy(sm_transform, r1km, c1km)
-    r20km, c20km = rowcol(weather_forecast_transform, x, y)
-    return r20km, c20km
-
-
-def create_sequences(sm_transform, sm_data, weather_transform, weather_data, weather_forecast_transform,
-                     weather_forecast_data, past_days=30, forecast_days=7):
+def create_sequences(sm_transform, sm_data, weather_transform, weather_data, past_days=30, forecast_days=7):
     """
     Generates data sequences for deep learning model using soil moisture and weather information.
 
@@ -127,32 +98,28 @@ def create_sequences(sm_transform, sm_data, weather_transform, weather_data, wea
         List of tuple (row, col) indicating the pixel location in the 1km soil moisture grid.
     """
     T, H, W= sm_data.shape
-    sequences_x, sequences_x_future, sequences_y, pixel_indices = [], [], [], []
+    sequences_x, sequences_y, pixel_indices = [], [], []
 
     for i in range(H):
         for j in range(W):
             r10km, c10km = map_10km_to_1km(i, j, sm_transform, weather_transform)
-            r20km, c20km = map_20km_to_1km(i, j, sm_transform, weather_forecast_transform)
             if r10km < 0 or c10km < 0 or r10km >= weather_data.shape[1] or c10km >= weather_data.shape[2]:
                 continue
 
-            pixel_weather_forecast = weather_forecast_data[:, r20km, c20km, :]
             pixel_weather = weather_data[:, r10km, c10km, :]
             pixel_sm = sm_data[:, i, j]
             pixel_sm = pd.Series(pixel_sm).interpolate(method='linear', limit_direction='both').to_numpy()
-            if np.any(np.isnan(pixel_weather)) or np.any(np.isnan(pixel_sm)) or np.any(np.isnan(pixel_weather_forecast)):
+            if np.any(np.isnan(pixel_weather)) or np.any(np.isnan(pixel_sm)):
                 continue
             for t in range(T - past_days - forecast_days + 1):
                 weather_x = pixel_weather[t:t+past_days, :]
-                weather_forecast_x = pixel_weather_forecast[t+past_days: t+past_days+forecast_days, :]
                 sm_x = pixel_sm[t:t + past_days].reshape(-1, 1)
                 X = np.hstack([weather_x, sm_x])
                 y = pixel_sm[t+past_days:t+past_days+forecast_days]
                 sequences_x.append(X)
-                sequences_x_future.append(weather_forecast_x)
                 sequences_y.append(y)
                 pixel_indices.append((i, j))
-    return np.array(sequences_x), np.array(sequences_x_future), np.array(sequences_y), pixel_indices
+    return np.array(sequences_x), np.array(sequences_y), pixel_indices
 
 
 def create_seq(y, time_steps=30, forecasts=7):
@@ -236,55 +203,35 @@ def filter_by_dates(data, bands, suffix, common_dates):
 
 
 def dl_model(hp):
-    input_past = tf.keras.layers.Input(shape=(X_train_past.shape[1], X_train_past.shape[2]))
-    input_future = tf.keras.layers.Input(shape=(X_train_future.shape[1], X_train_future.shape[2]))
+    model = tf.keras.Sequential()
+    model.add(tf.keras.layers.Input(shape=(X_train.shape[1], X_train.shape[2])))
 
-    x = input_past
     num_conv_layers = hp.Int('num_conv_layers', 0, 2)
     for i in range(num_conv_layers):
-        x = tf.keras.layers.Conv1D(
-            filters=hp.Choice(f'conv_filters_{i}', [32, 64, 128]),
+        model.add(tf.keras.layers.Conv1D(
+            filters=hp.Int(f'conv_filters_{i}', min_value=32, max_value=128, step=32),
             kernel_size=3,
             activation='relu',
             padding='same'
-        )(x)
+        ))
 
     num_lstm_layers = hp.Int('num_lstm_layers', 1, 3)
     for j in range(num_lstm_layers):
         return_seq = j < num_lstm_layers - 1
-        x = tf.keras.layers.LSTM(
-            units=hp.Choice(f'lstm_units_{j}', [32, 64, 128]),
+        model.add(tf.keras.layers.LSTM(
+            units=hp.Int(f'lstm_units_{j}', min_value=32, max_value=128, step=32),
             activation='relu',
             return_sequences=return_seq
-        )(x)
+        ))
+        model.add(tf.keras.layers.Dropout(hp.Float(f'dropout_{j}', 0.1, 0.5, step=0.1)))
 
-    model_past = x
+    model.add(tf.keras.layers.Dense(
+        units=hp.Int('dense_units', min_value=32, max_value=128, step=32),
+        activation='relu'
+    ))
 
-    y = input_future
-    num_lstm_layers = hp.Int('num_lstm_layers', 1, 3)
-    for j in range(num_lstm_layers):
-        return_seq = j < num_lstm_layers - 1
-        y = tf.keras.layers.LSTM(
-            units=hp.Choice(f'lstm_units_{j}', [32, 64, 128]),
-            activation='relu',
-            return_sequences=return_seq
-        )(y)
+    model.add(tf.keras.layers.Dense(forecast_days))
 
-    model_future = y
-
-    combined_model = tf.keras.layers.Concatenate()([model_past, model_future])
-
-    for k in range(hp.Int('dense_layers', 1, 2)):
-        combined_model = tf.keras.layers.Dense(
-            units=hp.Choice(f"dense_units_{k}", [32, 64, 128]),
-            activation='relu',
-        )(combined_model)
-        if hp.Boolean(f"use_dropout_{k}"):
-            combined_model = tf.keras.layers.Dropout(rate=hp.Float(f"dropout_rate_{k}", 0.2, 0.5))(combined_model)
-    
-    output = tf.keras.layers.Dense(forecast_days)(combined_model)
-
-    model = tf.keras.Model(inputs=[input_past, input_future], outputs=output)
     model.compile(
         optimizer=tf.keras.optimizers.Adam(
             learning_rate=hp.Choice('lr', [1e-04, 5e-04, 1e-03])
@@ -306,11 +253,6 @@ era5_train_paths = [
     "../../Data/ERA5_NL/ERA5_2015_2020_SoilTemp_NL_Daily.tif"
 ]
 
-cfs_train_paths = [
-    "../../Data/CFSV2/CFSV2_2015_2020_Precip_NL_Daily.tif",
-    "../../Data/CFSV2/CFSV2_2015_2020_Temp_NL_Daily.tif"
-]
-
 # Paths for SMAP 10km SM product, not used in the code anymore.
 smap_sm_am_train = "../../Data/SMAP/SMAP_2016_2022_SoilMoisture_AM_NL_Daily.tif"
 smap_sm_pm_train = "../../Data/SMAP/SMAP_2016_2022_SoilMoisture_PM_NL_Daily.tif"
@@ -322,8 +264,18 @@ gssm_sm_train = "../../Data/GSSM/GSSM_2016_2020_SM_NL_Daily_1km.tif"
 smap_sm_downscaled_path = "../../Data/SMAP/SMAP_downscaled_appraoch1_smap_test.tif"
 
 # Path for insitu measurements, csv format and the corresponding lat, lon information.
-sm_test_path = "../../Data/dataverse_files/1_station_measurements/2_calibrated/ITCSM_08_cd.csv"
-lat, lon = 52.13583, 6.745
+sm_test_path_05 = "../../Data/dataverse_files/1_station_measurements/2_calibrated/ITCSM_05_cd.csv"
+sm_test_path_08 = "../../Data/dataverse_files/1_station_measurements/2_calibrated/ITCSM_08_cd.csv"
+sm_test_path_09 = "../../Data/dataverse_files/1_station_measurements/2_calibrated/ITCSM_09_cd.csv"
+sm_test_path_10 = "../../Data/dataverse_files/1_station_measurements/2_calibrated/ITCSM_10_cd.csv"
+sm_test_path_15 = "../../Data/dataverse_files/1_station_measurements/2_calibrated/ITCSM_15_cd.csv"
+sm_test_path_16 = "../../Data/dataverse_files/1_station_measurements/2_calibrated/ITCSM_16_cd.csv"
+lat05, lon05 = 52.27333, 6.69944
+lat08, lon08 = 52.13583, 6.745
+lat09, lon09 = 52.14639, 6.84306
+lat10, lon10 = 52.2, 6.65944
+lat15, lon15 = 52.30944, 6.6125
+lat16, lon16 = 52.36781, 6.53525
 
 
 # Read SM and weather data.
@@ -335,8 +287,7 @@ era5_wind, era5_wind_bands = read_tif(era5_train_paths[3])
 era5_rad, era5_rad_bands = read_tif(era5_train_paths[4])
 era5_et, era5_et_bands = read_tif(era5_train_paths[5])
 era5_soiltemp, era5_soiltemp_bands = read_tif(era5_train_paths[6])
-cfs_precip, cfs_precip_bands = read_tif(cfs_train_paths[0])
-cfs_temp, cfs_temp_bands = read_tif(cfs_train_paths[1])
+
 
 # Get the valid dates for each feature.
 sm_dates = get_valid_dates(sm_bands, "SM")
@@ -347,12 +298,10 @@ era5_wind_dates = get_valid_dates(era5_wind_bands, "Wind")
 era5_rad_dates = get_valid_dates(era5_rad_bands, "Radiation")
 era5_et_dates = get_valid_dates(era5_et_bands, "ET")
 era5_soiltemp_dates = get_valid_dates(era5_soiltemp_bands, "SoilTemp")
-cfs_precip_dates = get_valid_dates(cfs_precip_bands, "Precip")
-cfs_temp_dates = get_valid_dates(cfs_temp_bands, "Temp")
 
 # Get the common dates between all the features.
 common_dates = sorted(sm_dates & era5_precip_dates & era5_temp_dates & era5_rh_dates & era5_wind_dates & era5_rad_dates
-                      & era5_et_dates & era5_soiltemp_dates & cfs_precip_dates & cfs_precip_dates)
+                      & era5_et_dates & era5_soiltemp_dates)
 
 # Filter all the features to common dates.
 era5_precip, era5_precip_bands_filt = filter_by_dates(era5_precip, era5_precip_bands, "Precip", common_dates)
@@ -363,8 +312,6 @@ era5_wind, era5_wind_bands_filt = filter_by_dates(era5_wind, era5_wind_bands, "W
 era5_rad, era5_rad_bands_filt = filter_by_dates(era5_rad, era5_rad_bands, "Radiation", common_dates)
 era5_et, era5_et_bands_filt = filter_by_dates(era5_et, era5_et_bands, "ET", common_dates)
 era5_soiltemp, era5_soiltemp_bands_filt = filter_by_dates(era5_soiltemp, era5_soiltemp_bands, "SoilTemp", common_dates)
-cfs_precip, cfs_precip_bands_filt = filter_by_dates(cfs_precip, cfs_precip_bands, "Precip", common_dates)
-cfs_temp, cfs_temp_bands_filt = filter_by_dates(cfs_temp, cfs_temp_bands, "Temp", common_dates)
 
 # sm_new_dates = [pd.to_datetime(b.replace('_', '-')) for b in common_dates]
 # mask = [
@@ -374,15 +321,11 @@ cfs_temp, cfs_temp_bands_filt = filter_by_dates(cfs_temp, cfs_temp_bands, "Temp"
 
 # Stack the weather features, with shape (Time, H, W, num_features).
 weather_data_stack = np.stack([era5_precip, era5_temp, era5_rh, era5_wind, era5_rad, era5_et, era5_soiltemp], axis=-1)
-weather_forecast_data_stack = np.stack([cfs_precip, cfs_temp], axis=-1)
 
 # weather_train = weather_data_stack[mask]
 # Split train and test weather data, currently using the last year as test dataset and remaining as training dataset.
 weather_train = weather_data_stack[:-366]
 weather_test = weather_data_stack[-366:]
-
-weather_forecast_train = weather_forecast_data_stack[:-366]
-weather_forecast_test = weather_forecast_data_stack[-366:]
 
 # sm_train = sm_data[mask]
 # Split train and test SM data, currently using the last year as test dataset and remaining as training dataset.
@@ -395,9 +338,6 @@ with rasterio.open(smap_sm_downscaled_path) as src_sm:
 
 with rasterio.open(era5_train_paths[0]) as src_weather:
     weather_transform = src_weather.transform
-
-with rasterio.open(cfs_train_paths[0]) as src_weather_forecast:
-    weather_forecast_transform = src_weather_forecast.transform
 
 # Initialize scalars for input features and target.
 feature_scaler = MinMaxScaler()
@@ -414,17 +354,6 @@ weather_flat_test = weather_test.reshape(T2*H2*W2, F2)
 weather_flat_test_scaled = feature_scaler.transform(weather_flat_test)
 weather_test_scaled = weather_flat_test_scaled.reshape(T2, H2, W2, F2)
 
-
-T3, H3, W3, F3 = weather_forecast_train.shape
-weather_forecast_flat_train = weather_forecast_train.reshape(T3*H3*W3, F3)
-weather_forecast_flat_scaled = feature_scaler.fit_transform(weather_forecast_flat_train)
-weather_forecast_train_scaled = weather_forecast_flat_scaled.reshape(T3, H3, W3, F3)
-
-T4, H4, W4, F4 = weather_forecast_test.shape
-weather_forecast_flat_test = weather_forecast_test.reshape(T4*H4*W4, F4)
-weather_forecast_flat_test_scaled = feature_scaler.transform(weather_forecast_flat_test)
-weather_forecast_test_scaled = weather_forecast_flat_test_scaled.reshape(T4, H4, W4, F4)
-
 # Scale the SM train and test datasets. Before scaling, reshape the data to 2D array of shape (T*H*W, 1).
 sm_flat = sm_train.reshape(-1, 1)
 sm_train_scaled = target_scaler.fit_transform(sm_flat).reshape(sm_train.shape)
@@ -437,101 +366,154 @@ past_days = 30
 forecast_days = 7
 
 # Create training and testing sequences for the model.
-X_train_past, X_train_future, y_train, pixel_indices_train = create_sequences(sm_transform, sm_train_scaled, weather_transform,
-                                                         weather_train_scaled, weather_forecast_transform,
-                                                         weather_forecast_train_scaled, past_days, forecast_days)
-X_test_past, X_test_future, y_test, pixel_indices_test = create_sequences(sm_transform, sm_test_scaled, weather_transform,
-                                                      weather_test_scaled, weather_forecast_transform,
-                                                      weather_forecast_test_scaled, past_days, forecast_days)
+X_train, y_train, pixel_indices_train = create_sequences(sm_transform, sm_train_scaled, weather_transform,
+                                                         weather_train_scaled, past_days, forecast_days)
+X_test, y_test, pixel_indices_test = create_sequences(sm_transform, sm_test_scaled, weather_transform,
+                                                      weather_test_scaled, past_days, forecast_days)
 
-# tuner = kt.RandomSearch(
-#     dl_model,
-#     objective="val_loss",
-#     max_trials=10,
-#     executions_per_trial=1,
-#     directory="../../Logs/Tuner_logs_WithWeatherForecasts",
-#     project_name="../../Logs/Conv_LSTM_WithWeatherForecasts"
-# )
-#
-# tuner.search(
-#     [X_train_past, X_train_future],
-#     y_train,
-#     epochs=20,
-#     batch_size=32,
-#     validation_split=0.2,
-#     callbacks=[tf.keras.callbacks.EarlyStopping(patience=3)]
-# )
-#
-# model_name = f"sm_smap_weather_weatherforecast_downscaled_x2_conv_lstm_{datetime.now().strftime('%Y%m%d_%H%M%S')}.h5"
-# model.save(f"../../Models/{model_name}")
-model = tf.keras.models.load_model(
-    "../../Models/sm_smap_weather_weatherforecast_downscaled_x2_conv_lstm_20250702_094339.h5")
+model = tf.keras.models.load_model("../../Models/sm_smap_weather_downscaled_tuned_conv_lstm_20250629_012833.h5")
+
+# model.summary()
+# for i, layer in enumerate(model.layers):
+#     print(f"\nLayer {i}: {layer.name} ({layer.__class__.__name__})")
+#     print(layer.get_config())
 
 # Predict on test dataset and inverse transform the predictions to original scale.
-y_preds = model.predict([X_test_past, X_test_future])
+y_preds = model.predict(X_test)
 y_preds_inv = target_scaler.inverse_transform(y_preds.reshape(-1, 1)).reshape(y_preds.shape)
 # y_test_inv = target_scaler.inverse_transform(y_test.reshape(-1, 1)).reshape(y_test.shape)
 
-# Read the insitu sm data, csv. Skipping unnecessary rows.
-headers = pd.read_csv(sm_test_path, skiprows=18, nrows=0).columns.tolist()
-sm_test = pd.read_csv(sm_test_path, skiprows=20, parse_dates=["Date time"], names=headers)
 
-sm_test["Date time"] = pd.to_datetime(sm_test["Date time"], format='%d-%m-%Y %H:%M', errors='coerce')
-sm_test.replace(-99.999, np.nan, inplace=True)
-sm_test = sm_test[sm_test["Date time"] >= '2020-01-01']
-sm_test = sm_test.set_index("Date time")
-sm_test = sm_test.resample("D").mean()
-sm_test = sm_test.interpolate(method="linear")
-sm_test_insitu = create_seq(sm_test[" 5 cm SM"], 30, 7)
+# Read the insitu sm data, csv. Skipping unnecessary rows.
+def sm_test_prep(sm_test_path, skip_rows1, skip_rows2):
+    headers = pd.read_csv(sm_test_path, skiprows=skip_rows1, nrows=0).columns.tolist()
+    sm = pd.read_csv(sm_test_path, skiprows=skip_rows2, parse_dates=["Date time"], names=headers)
+    sm["Date time"] = pd.to_datetime(sm["Date time"], format='%d-%m-%Y %H:%M', errors='coerce')
+    sm.replace(-99.999, np.nan, inplace=True)
+    sm = sm[sm["Date time"] >= '2020-01-01']
+    sm = sm.set_index("Date time")
+    sm = sm.resample("D").mean()
+    sm = sm.interpolate(method="linear")
+    sm_test_insitu = create_seq(sm[" 5 cm SM"], 30, 7)
+
+    return sm_test_insitu
+
+
+sm_test_insitu_05 = sm_test_prep(sm_test_path_05, 18, 20)
+sm_test_insitu_08 = sm_test_prep(sm_test_path_08, 18, 20)
+sm_test_insitu_09 = sm_test_prep(sm_test_path_09, 18, 20)
+sm_test_insitu_10 = sm_test_prep(sm_test_path_10, 18, 20)
+sm_test_insitu_15 = sm_test_prep(sm_test_path_15, 21, 23)
+sm_test_insitu_16 = sm_test_prep(sm_test_path_16, 21, 23)
 
 # Get the pixel index in the SM grid, corresponding to the location (lat, lon) of insitu data.
 with rasterio.open(smap_sm_downscaled_path) as src:
     transform = src.transform
     crs = src.crs
 
-transformer = Transformer.from_crs("EPSG:4326", crs, always_xy=True)
-x, y = transformer.transform(lon, lat)
-row, col = rowcol(transform, x, y)
-target_pixel = (row, col)
+
+def target_pixel(lat, lon):
+    transformer = Transformer.from_crs("EPSG:4326", crs, always_xy=True)
+    x, y = transformer.transform(lon, lat)
+    row, col = rowcol(transform, x, y)
+
+    return row, col
+
+
+target_pixel05 = target_pixel(lat05, lon05)
+target_pixel08 = target_pixel(lat08, lon08)
+target_pixel09 = target_pixel(lat09, lon09)
+target_pixel10 = target_pixel(lat10, lon10)
+target_pixel15 = target_pixel(lat15, lon15)
+target_pixel16 = target_pixel(lat16, lon16)
 
 # Get the prediction indices for the insitu location.
-matching_indices = [idx for idx, pix in enumerate(pixel_indices_test) if pix == target_pixel]
+matching_indices05 = [idx for idx, pix in enumerate(pixel_indices_test) if pix == target_pixel05]
+matching_indices08 = [idx for idx, pix in enumerate(pixel_indices_test) if pix == target_pixel08]
+matching_indices09 = [idx for idx, pix in enumerate(pixel_indices_test) if pix == target_pixel09]
+matching_indices10 = [idx for idx, pix in enumerate(pixel_indices_test) if pix == target_pixel10]
+matching_indices15 = [idx for idx, pix in enumerate(pixel_indices_test) if pix == target_pixel15]
+matching_indices16 = [idx for idx, pix in enumerate(pixel_indices_test) if pix == target_pixel16]
 
-# Compute validation metrics for each day.
-for day in range(forecast_days):
-    true_series = sm_test_insitu[:, day]
-    # true_series = y_test_inv[matching_indices, day]
-    pred_series = y_preds_inv[matching_indices, day]
-    rmse = np.sqrt(mean_squared_error(true_series, pred_series))
-    r2 = r2_score(true_series, pred_series)
-    print(f"Pixel {target_pixel}, Day {day + 1} — RMSE: {rmse:.4f}, R²: {r2:.4f}")
 
-for day in range(forecast_days):
-    true_series = sm_test_insitu[:, day]
-    # true_series = y_test_inv[matching_indices, day]
-    pred_series = y_preds_inv[matching_indices, day]
-    true_series_class = np.where(true_series >= 0.225, "Wet",
-        np.where((true_series >= 0.125) & (true_series < 0.225), "Moist", "Dry"))
-    pred_series_class = np.where(pred_series >= 0.225, "Wet", np.where(
-        (pred_series >= 0.125) & (pred_series < 0.225), "Moist", "Dry"))
-    accuracy = accuracy_score(true_series_class, pred_series_class)
-    class_report = classification_report(true_series_class, pred_series_class)
-    print(f"Class Accuracy: {accuracy:.4f}")
-    print(class_report)
+pixel_data = {
+    "pixel05": {"indices": matching_indices05, "insitu": sm_test_insitu_05},
+    "pixel08": {"indices": matching_indices08, "insitu": sm_test_insitu_08},
+    "pixel09": {"indices": matching_indices09, "insitu": sm_test_insitu_09},
+    "pixel10": {"indices": matching_indices10, "insitu": sm_test_insitu_10},
+    "pixel15": {"indices": matching_indices15, "insitu": sm_test_insitu_15},
+    "pixel16": {"indices": matching_indices16, "insitu": sm_test_insitu_16},
+}
 
-# Plot the 3 days' predictions vs ture values.
-fig, axs = plt.subplots(3, 1, figsize=(14, 10), sharex="all")
 
-for i in range(3):
-    axs[i].plot(sm_test_insitu[:, i], label="Actual", color="black")
-    # axs[i].plot(y_test_inv[matching_indices, i], label="Actual", color="black")
-    axs[i].plot(y_preds_inv[matching_indices, i], label="Predicted (Mean)", color="green")
-    axs[i].set_title(f"SM Prediction - Day {i+1}")
-    axs[i].set_ylabel("SM")
-    axs[i].legend()
-    axs[i].grid(True)
+forecast_days = 7
+metrics_list = []
 
-axs[-1].set_xlabel("Time step")
+for pixel_name, data in pixel_data.items():
+    indices = data["indices"]
+    insitu = data["insitu"]
+
+    for day in range(forecast_days):
+        true_series = insitu[:, day]
+        pred_series = y_preds_inv[indices, day]
+
+        # Regression metrics
+        rmse = np.sqrt(mean_squared_error(true_series, pred_series))
+        r2 = r2_score(true_series, pred_series)
+
+        # Classification metrics
+        true_class = np.where(true_series >= 0.225, "Wet",
+                      np.where((true_series >= 0.1125) & (true_series < 0.225), "Moist", "Dry"))
+        pred_class = np.where(pred_series >= 0.225, "Wet",
+                      np.where((pred_series >= 0.1125) & (pred_series < 0.225), "Moist", "Dry"))
+
+        accuracy = accuracy_score(true_class, pred_class)
+        class_report = classification_report(true_class, pred_class, output_dict=True)
+
+        metrics_list.append({
+            "Pixel": pixel_name,
+            "Day": day + 1,
+            "RMSE": rmse,
+            "R2": r2,
+            "Accuracy": accuracy,
+            "Precision_Dry": class_report.get("Dry", {}).get("precision", np.nan),
+            "Recall_Dry": class_report.get("Dry", {}).get("recall", np.nan),
+            "F1_Dry": class_report.get("Dry", {}).get("f1-score", np.nan),
+            "Support_Dry": class_report.get("Dry", {}).get("support", np.nan),
+            "Precision_Moist": class_report.get("Moist", {}).get("precision", np.nan),
+            "Recall_Moist": class_report.get("Moist", {}).get("recall", np.nan),
+            "F1_Moist": class_report.get("Moist", {}).get("f1-score", np.nan),
+            "Support_Moist": class_report.get("Moist", {}).get("support", np.nan),
+            "Precision_Wet": class_report.get("Wet", {}).get("precision", np.nan),
+            "Recall_Wet": class_report.get("Wet", {}).get("recall", np.nan),
+            "F1_Wet": class_report.get("Wet", {}).get("f1-score", np.nan),
+            "Support_Wet": class_report.get("Wet", {}).get("support", np.nan),
+        })
+
+metrics_df = pd.DataFrame(metrics_list)
+metrics_df.to_csv("../../Results/sm_forecast_metrics_all_pixels_NewThresholds.csv", index=False)
+
+
+plt.figure(figsize=(12, 6))
+
+days = 3
+
+for pixel_name, data in pixel_data.items():
+    matching_indices = data["indices"]
+    insitu_data = data["insitu"]
+
+    for day in range(days):
+        preds = y_preds_inv[matching_indices, day]
+        label = f"{pixel_name} - Day {day+1}"
+        plt.plot(preds, label=label)
+
+    plt.plot(insitu_data[:, 0], label=f"{pixel_name} - Actual", linewidth=2, linestyle='--', color='black')
+
+plt.title("Soil Moisture Forecasts at All Locations")
+plt.ylabel("Soil Moisture (SM)")
+plt.xlabel("Time Step")
+plt.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
+plt.grid(True)
 plt.tight_layout()
 plt.show()
 
@@ -554,24 +536,3 @@ plt.show()
 #
 # sm_train = smap_sm_avg_data[60:1461]
 # sm_test = smap_sm_avg_data[1461:1461+366]
-
-
-# input_past = tf.keras.layers.Input(shape=(past_days, X_train_past.shape[-1]))
-# input_future = tf.keras.layers.Input(shape=(forecast_days, X_train_future.shape[-1]))
-#
-# model_past = tf.keras.layers.Conv1D(64, kernel_size=3, activation='relu', padding='same')(input_past)
-# model_past = tf.keras.layers.Conv1D(32, kernel_size=3, activation='relu', padding='same')(model_past)
-# model_past = tf.keras.layers.LSTM(128, activation='relu', return_sequences=True)(model_past)
-# model_past = tf.keras.layers.LSTM(128, activation='relu')(model_past)
-#
-# model_future = tf.keras.layers.LSTM(128, activation='relu', return_sequences=True)(input_future)
-# model_future = tf.keras.layers.LSTM(128, activation='relu')(model_future)
-#
-# model_dense = tf.keras.layers.Concatenate()([model_past, model_future])
-# model_dense = tf.keras.layers.Dense(64, activation='relu')(model_dense)
-# output = tf.keras.layers.Dense(forecast_days)(model_dense)
-#
-# model = tf.keras.models.Model(inputs=[input_past, input_future], outputs=output)
-# model.compile(optimizer='adam', loss='mse')
-# model.fit([X_train_past, X_train_future], y_train, epochs=1, batch_size=32, validation_split=0.2)
-#

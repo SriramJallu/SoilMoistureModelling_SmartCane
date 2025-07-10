@@ -264,8 +264,8 @@ gssm_sm_train = "../../Data/GSSM/GSSM_2016_2020_SM_NL_Daily_1km.tif"
 smap_sm_downscaled_path = "../../Data/SMAP/SMAP_downscaled_appraoch1_smap_test.tif"
 
 # Path for insitu measurements, csv format and the corresponding lat, lon information.
-sm_test_path = "../../Data/dataverse_files/1_station_measurements/2_calibrated/ITCSM_09_cd.csv"
-lat, lon = 52.14639, 6.84306
+sm_test_path = "../../Data/dataverse_files/1_station_measurements/2_calibrated/ITCSM_18_cd.csv"
+lat, lon = 52.40528, 6.37991
 
 
 # Read SM and weather data.
@@ -413,8 +413,8 @@ y_preds_inv = target_scaler.inverse_transform(y_preds.reshape(-1, 1)).reshape(y_
 # y_test_inv = target_scaler.inverse_transform(y_test.reshape(-1, 1)).reshape(y_test.shape)
 
 # Read the insitu sm data, csv. Skipping unnecessary rows.
-headers = pd.read_csv(sm_test_path, skiprows=18, nrows=0).columns.tolist()
-sm_test = pd.read_csv(sm_test_path, skiprows=20, parse_dates=["Date time"], names=headers)
+headers = pd.read_csv(sm_test_path, skiprows=21, nrows=0).columns.tolist()
+sm_test = pd.read_csv(sm_test_path, skiprows=23, parse_dates=["Date time"], names=headers)
 
 sm_test["Date time"] = pd.to_datetime(sm_test["Date time"], format='%d-%m-%Y %H:%M', errors='coerce')
 sm_test.replace(-99.999, np.nan, inplace=True)

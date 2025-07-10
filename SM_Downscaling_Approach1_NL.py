@@ -523,7 +523,7 @@ fig, axes = plt.subplots(nrows=2, ncols=1, figsize=(12, 8))
 
 axes[0].plot(combined_df.index, combined_df["insitu"], label="In-situ SM", linewidth=2)
 axes[0].plot(combined_df.index, combined_df["pred"], label="Predicted SM", linewidth=2)
-# axes[0].plot(combined_df.index, combined_df["era5_SM"], label="ERA5 SM", linewidth=2)
+axes[0].plot(combined_df.index, combined_df["era5_SM"], label="ERA5 SM", linewidth=2)
 # axes[0].plot(combined_df.index, combined_df["SM_API"], label="API SM", linewidth=2)
 # axes[0].plot(combined_df.index, combined_df["ndvi"], label="NDVI", linewidth=2)
 axes[0].set_ylabel("Soil Moisture (m\u00b3/m\u00b3)", fontsize=12)

@@ -6,9 +6,9 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error
 import itertools
 
 
-era5 = "../../Data/ERA5/ERA5_2021_2022_WindSpeed_Daily_Transmara_Kenya.tif"
-gldas = "../../Data/GLDAS/GLDAS_2021_2022_WindSpeed_Daily_Transmara_Kenya.tif"
-cfs = "../../Data/CFSV2/CFSV2_2021_2022_WindSpeed_Daily_Transmara_Kenya.tif"
+era5 = "../../Data/ERA5/ERA5_2021_2022_WindSpeed_Daily.tif"
+gldas = "../../Data/GLDAS/GLDAS_2021_2022_WindSpeed_Daily.tif"
+cfs = "../../Data/CFSV2/CFSV2_2021_2022_WindSpeed_Daily.tif"
 
 
 def read_tif(filename):
@@ -33,10 +33,10 @@ def get_pixels_values(lat, lon, transform):
     return int(row), int(col)
 
 # Chemba
-# pt_lat, pt_lon = -17.331524, 34.954147
+pt_lat, pt_lon = -17.331524, 34.954147
 
 # Transmara, Kenya
-pt_lat, pt_lon = -1.023509, 34.740671
+# pt_lat, pt_lon = -1.023509, 34.740671
 
 era5_row, era5_col = get_pixels_values(pt_lat, pt_lon, era5_transform)
 era5_wind = era5_data[:, era5_row, era5_col]
@@ -60,7 +60,7 @@ wind_df = pd.DataFrame({
 })
 
 
-df = pd.read_csv("../../Data/Transmara_Kenya_OpenMeteo_API_01012019_30122024_Daily.csv", skiprows=3)
+df = pd.read_csv("../../Data/Chemba_loc1_OpenMeteo_API_01012019_30122024_Daily.csv", skiprows=3)
 df["time"] = pd.to_datetime(df["time"])
 
 openmeteo = df[df["time"].dt.year.isin([2021, 2022])].copy()
@@ -69,7 +69,7 @@ openmeteo.rename(columns={"wind_speed_10m_mean (km/h)": "OpenMeteo"}, inplace=Tr
 openmeteo["OpenMeteo"] = openmeteo["OpenMeteo"] / 3.6
 wind_df["OpenMeteo"] = openmeteo["OpenMeteo"].values
 
-vc_daily = pd.read_csv("../../Data/Transmara_Kenya_VisualCrossing_API_01012021_30122022_Daily.csv")
+vc_daily = pd.read_csv("../../Data/Chemba_loc1_VisualCrossing_01012021_31122022_Daily.csv")
 vc_daily = vc_daily.drop(columns="name")
 vc_daily["datetime"] = pd.to_datetime(vc_daily["datetime"])
 
@@ -77,7 +77,7 @@ vc_daily.rename(columns={"windspeed": "VisualCrossing"}, inplace=True)
 vc_daily["VisualCrossing"] = vc_daily["VisualCrossing"] / 3.6
 
 wind_df["VisualCrossing"] = vc_daily["VisualCrossing"].values
-
+wind_df.loc[wind_df["VisualCrossing"] > 15, "VisualCrossing"] = 3
 print(wind_df.head())
 
 print(wind_df.shape)

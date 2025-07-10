@@ -16,14 +16,40 @@ def read_tif(tif):
     return data, meta, bands
 
 
-et_path = "../../Data/Chemba_Buffer/MODIS_ET_Daily_2015_2020_Chemba_Buffer.tif"
+sm_path = "../../Data/SMAP/SMAP_L4_2015_2020_SM_NL_Daily.tif"
 
-et_data, et_meta, et_bands = read_tif(et_path)
-print(et_data.shape)
+sm_data, sm_meta, sm_bands = read_tif(sm_path)
 
-print(et_bands[:5])
-print(et_meta)
+lat, lon = 52.36781, 6.53525
 
+transformer = Transformer.from_crs("EPSG:4326", sm_meta["crs"], always_xy=True)
+x, y = transformer.transform(lon, lat)
+row, col = rowcol(sm_meta["transform"], x, y)
+sm_series = sm_data[:, row, col]
+
+# plt.hist(sm_series[~np.isnan(sm_series)], bins=30, edgecolor='black')
+plt.hist(sm_data[~np.isnan(sm_data)], bins=30, edgecolor='black')
+plt.show()
+
+sm_test_path = "../../Data/dataverse_files/1_station_measurements/2_calibrated/ITCSM_05_cd.csv"
+headers = pd.read_csv(sm_test_path, skiprows=18, nrows=0).columns.tolist()
+sm_test = pd.read_csv(sm_test_path, skiprows=20, parse_dates=["Date time"], names=headers)
+
+sm_test["Date time"] = pd.to_datetime(sm_test["Date time"], format='%d-%m-%Y %H:%M', errors='coerce')
+sm_test.replace(-99.999, np.nan, inplace=True)
+sm_test = sm_test[sm_test["Date time"] >= '2015-01-01']
+sm_test = sm_test[sm_test[" 5 cm SM"] >= 0]
+sm_test = sm_test.set_index("Date time")
+sm_test.index = sm_test.index.normalize()
+sm_test = sm_test.resample("D").mean()
+sm_test = sm_test.interpolate(method="linear")
+
+df = pd.DataFrame({
+    "insitu": sm_test[" 5 cm SM"]
+})
+
+plt.plot(df.index, df["insitu"])
+plt.show()
 # sm_api_path = "../../Data/dataverse_files/Loc_10_API.csv"
 # headers_api = pd.read_csv(sm_api_path, skiprows=3, nrows=0).columns.tolist()
 # sm_test = pd.read_csv(sm_api_path, skiprows=4, parse_dates=["time"], names=headers_api)
@@ -31,6 +57,13 @@ print(et_meta)
 # sm_test = sm_test.set_index("time")
 # print(sm_test.head())
 
+# et_path = "../../Data/Chemba_Buffer/MODIS_ET_Daily_2015_2020_Chemba_Buffer.tif"
+#
+# et_data, et_meta, et_bands = read_tif(et_path)
+# print(et_data.shape)
+#
+# print(et_bands[:5])
+# print(et_meta)
 # daily_et = {}
 #
 # for i, bands in enumerate(et_bands):
